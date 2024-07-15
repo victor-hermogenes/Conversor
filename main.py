@@ -3,19 +3,97 @@ import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
-    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout
+    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget
 )
 from PyQt5.QtCore import Qt
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
 
+class FileConfig(QWidget):
+    def __init__(self, file_path, file_name):
+        super().__init__()
+        self.file_path = file_path
+        self.file_name = file_name
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.type_label = QLabel(f'Conversion Type for {self.file_name}:', self)
+        layout.addWidget(self.type_label)
+
+        self.type_combo = QComboBox(self)
+        file_extension = os.path.splitext(self.file_name)[1].lower()
+        if file_extension == '.xlsx':
+            self.type_combo.addItems(['Excel to CSV'])
+        elif file_extension == '.csv':
+            self.type_combo.addItems(['CSV to Excel'])
+        elif file_extension == '.json':
+            self.type_combo.addItems(['JSON to CSV'])
+        layout.addWidget(self.type_combo)
+
+        self.columns_label = QLabel('Select Columns:', self)
+        layout.addWidget(self.columns_label)
+
+        self.select_all_checkbox = QCheckBox('Select All', self)
+        self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
+        layout.addWidget(self.select_all_checkbox)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget(self.scroll_area)
+        self.scroll_layout = QFormLayout(self.scroll_content)
+        self.scroll_area.setWidget(self.scroll_content)
+        layout.addWidget(self.scroll_area)
+
+        self.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+            }
+            QCheckBox {
+                color: #FFFFFF;
+            }
+            QComboBox, QScrollArea {
+                background-color: #3E3E3E;
+                color: #FFFFFF;
+                border: 1px solid #5A5A5A;
+                border-radius: 3px;
+            }
+        """)
+
+    def toggle_select_all(self):
+        select_all = self.select_all_checkbox.isChecked()
+        for i in range(self.scroll_layout.count()):
+            checkbox = self.scroll_layout.itemAt(i).widget()
+            checkbox.setChecked(select_all)
+
+    def update_columns(self, columns):
+        self.clear_columns()
+        for column in columns:
+            checkbox = QCheckBox(column, self)
+            self.scroll_layout.addRow(checkbox)
+
+    def clear_columns(self):
+        while self.scroll_layout.count():
+            item = self.scroll_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def get_selected_columns(self):
+        return [self.scroll_layout.itemAt(i).widget().text()
+                for i in range(self.scroll_layout.count())
+                if self.scroll_layout.itemAt(i).widget().isChecked()]
+
 class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
+        self.file_configs = []
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle('EFC')
-        self.setGeometry(100, 100, 800, 500)
+        self.setGeometry(100, 100, 1000, 600)
 
         self.setStyleSheet("""
             QWidget {
@@ -68,177 +146,125 @@ class ConverterApp(QWidget):
                 color: #FFFFFF;
                 border: 1px solid #5A5A5A;
             }
+            QTabWidget::pane { /* The tab widget frame */
+                border-top: 2px solid #C2C7CB;
+            }
+            QTabWidget::tab-bar {
+                left: 5px; /* move to the right by 5px */
+            }
+            /* Style the tab using the tab sub-control. Note that
+                it reads QTabBar _not_ QTabWidget */
+            QTabBar::tab {
+                background: #3E3E3E;
+                color: #FFFFFF;
+                border: 1px solid #5A5A5A;
+                border-bottom-color: #C2C7CB; /* same as the pane color */
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                min-width: 8ex;
+                padding: 2px;
+                font-size: 12px; /* Adjust font size for better readability */
+            }
+            QTabBar::tab:selected, QTabBar::tab:hover {
+                background: #5A5A5A;
+            }
         """)
 
-        main_layout = QHBoxLayout()
+        main_layout = QVBoxLayout()
         self.setLayout(main_layout)
 
-        left_layout = QVBoxLayout()
-        main_layout.addLayout(left_layout)
+        input_layout = QHBoxLayout()
+        main_layout.addLayout(input_layout)
 
-        self.input_label = QLabel('Input File:', self)
-        left_layout.addWidget(self.input_label)
+        self.input_label = QLabel('Input Folder:', self)
+        input_layout.addWidget(self.input_label)
 
         self.input_line_edit = QLineEdit(self)
-        left_layout.addWidget(self.input_line_edit)
+        input_layout.addWidget(self.input_line_edit)
 
         self.input_button = QPushButton('Browse', self)
-        self.input_button.clicked.connect(self.browse_input_file)
-        left_layout.addWidget(self.input_button)
+        self.input_button.clicked.connect(self.browse_input_folder)
+        input_layout.addWidget(self.input_button)
 
-        self.output_label = QLabel('Output File:', self)
-        left_layout.addWidget(self.output_label)
+        self.output_label = QLabel('Output Folder:', self)
+        input_layout.addWidget(self.output_label)
 
         self.output_line_edit = QLineEdit(self)
-        left_layout.addWidget(self.output_line_edit)
+        input_layout.addWidget(self.output_line_edit)
 
         self.output_button = QPushButton('Browse', self)
-        self.output_button.clicked.connect(self.browse_output_file)
-        left_layout.addWidget(self.output_button)
+        self.output_button.clicked.connect(self.browse_output_folder)
+        input_layout.addWidget(self.output_button)
 
-        self.type_label = QLabel('Conversion Type:', self)
-        left_layout.addWidget(self.type_label)
-
-        self.type_combo = QComboBox(self)
-        self.type_combo.addItems(['Excel to CSV', 'CSV to Excel', 'JSON to CSV'])
-        left_layout.addWidget(self.type_combo)
-
-        self.columns_label = QLabel('Select Columns:', self)
-        left_layout.addWidget(self.columns_label)
-
-        self.select_all_checkbox = QCheckBox('Select All', self)
-        self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
-        left_layout.addWidget(self.select_all_checkbox)
-
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_content = QWidget(self.scroll_area)
-        self.scroll_layout = QFormLayout(self.scroll_content)
-        self.scroll_area.setWidget(self.scroll_content)
-        left_layout.addWidget(self.scroll_area)
+        self.tab_widget = QTabWidget(self)
+        main_layout.addWidget(self.tab_widget)
 
         self.convert_button = QPushButton('Convert', self)
-        self.convert_button.clicked.connect(self.convert_file)
-        left_layout.addWidget(self.convert_button)
+        self.convert_button.clicked.connect(self.convert_files)
+        main_layout.addWidget(self.convert_button)
 
-        # Table to display data
-        self.table_widget = QTableWidget(self)
-        main_layout.addWidget(self.table_widget)
-
-    def browse_input_file(self):
+    def browse_input_folder(self):
         options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select Input File", "", 
-                                                  "All Files (*);;Excel Files (*.xlsx);;CSV Files (*.csv);;JSON Files (*.json)", options=options)
-        if file_name:
-            self.input_line_edit.setText(file_name)
-            self.update_columns(file_name)
-            self.update_table_preview()
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Input Folder", options=options)
+        if folder_path:
+            self.input_line_edit.setText(folder_path)
+            self.update_file_tabs(folder_path)
 
-    def browse_output_file(self):
+    def browse_output_folder(self):
         options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getSaveFileName(self, "Select Output File", "", 
-                                                  "All Files (*);;CSV Files (*.csv);;Excel Files (*.xlsx)", options=options)
-        if file_name:
-            self.output_line_edit.setText(file_name)
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Output Folder", options=options)
+        if folder_path:
+            self.output_line_edit.setText(folder_path)
 
-    def update_columns(self, file_name):
-        self.clear_columns()
-        self.current_file = file_name
-        if file_name.endswith('.csv'):
-            import pandas as pd
-            df = pd.read_csv(file_name, nrows=1)
-            columns = df.columns.tolist()
-        elif file_name.endswith('.xlsx'):
-            import pandas as pd
-            df = pd.read_excel(file_name, nrows=1)
-            columns = df.columns.tolist()
-        elif file_name.endswith('.json'):
-            import json
-            import pandas as pd
-            data = []
-            with open(file_name, 'r', encoding='utf-8') as f:
-                for i, line in enumerate(f):
-                    if i >= 10:
-                        break
-                    data.append(json.loads(line.strip()))
-            df = pd.json_normalize(data)
-            columns = df.columns.tolist()
+    def update_file_tabs(self, folder_path):
+        self.tab_widget.clear()
+        self.file_configs.clear()
+        self.current_folder = folder_path
 
-        for column in columns:
-            checkbox = QCheckBox(column, self)
-            checkbox.stateChanged.connect(lambda state, c=column: self.update_table_preview())
-            self.scroll_layout.addRow(checkbox)
+        for file_name in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, file_name)
+            if os.path.isfile(file_path) and file_name.lower().endswith(('.xlsx', '.csv', '.json')):
+                file_config = FileConfig(file_path, file_name)
+                self.file_configs.append(file_config)
+                self.tab_widget.addTab(file_config, file_name)
+                if file_name.lower().endswith('.xlsx'):
+                    import pandas as pd
+                    xls = pd.ExcelFile(file_path)
+                    df = pd.read_excel(file_path, nrows=1)
+                    file_config.update_columns(df.columns.tolist())
+                elif file_name.lower().endswith('.csv'):
+                    import pandas as pd
+                    df = pd.read_csv(file_path, nrows=1)
+                    file_config.update_columns(df.columns.tolist())
+                elif file_name.lower().endswith('.json'):
+                    import json
+                    import pandas as pd
+                    data = []
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        for i, line in enumerate(f):
+                            if i >= 10:
+                                break
+                            data.append(json.loads(line.strip()))
+                    df = pd.json_normalize(data)
+                    file_config.update_columns(df.columns.tolist())
 
-    def clear_columns(self):
-        while self.scroll_layout.count():
-            item = self.scroll_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+    def convert_files(self):
+        output_folder = self.output_line_edit.text()
+        for file_config in self.file_configs:
+            conversion_type = file_config.type_combo.currentText()
+            selected_columns = file_config.get_selected_columns()
+            input_file = file_config.file_path
 
-    def toggle_select_all(self):
-        select_all = self.select_all_checkbox.isChecked()
-        for i in range(self.scroll_layout.count()):
-            checkbox = self.scroll_layout.itemAt(i).widget()
-            checkbox.setChecked(select_all)
-        self.update_table_preview()
+            output_file = os.path.join(output_folder, os.path.splitext(file_config.file_name)[0] + '_converted' + os.path.splitext(file_config.file_name)[1])
 
-    def update_table_preview(self):
-        selected_columns = [self.scroll_layout.itemAt(i).widget().text()
-                            for i in range(self.scroll_layout.count())
-                            if self.scroll_layout.itemAt(i).widget().isChecked()]
-
-        if not selected_columns:
-            self.table_widget.clear()
-            self.table_widget.setRowCount(0)
-            self.table_widget.setColumnCount(0)
-            return
-
-        file_name = self.current_file
-
-        if file_name.endswith('.csv'):
-            import pandas as pd
-            df = pd.read_csv(file_name, usecols=selected_columns, nrows=10)
-        elif file_name.endswith('.xlsx'):
-            import pandas as pd
-            df = pd.read_excel(file_name, usecols=selected_columns, nrows=10)
-        elif file_name.endswith('.json'):
-            import json
-            import pandas as pd
-            data = []
-            with open(file_name, 'r', encoding='utf-8') as f:
-                for i, line in enumerate(f):
-                    if i >= 10:
-                        break
-                    data.append(json.loads(line.strip()))
-            df = pd.json_normalize(data)
-            df = df[selected_columns]
-
-        self.table_widget.setColumnCount(len(df.columns))
-        self.table_widget.setRowCount(len(df.index))
-        self.table_widget.setHorizontalHeaderLabels(df.columns)
-
-        for row in df.iterrows():
-            for col_index, value in enumerate(row[1]):
-                self.table_widget.setItem(row[0], col_index, QTableWidgetItem(str(value)))
-
-    def convert_file(self):
-        input_file = self.input_line_edit.text()
-        output_file = self.output_line_edit.text()
-        conversion_type = self.type_combo.currentText()
-
-        selected_columns = [self.scroll_layout.itemAt(i).widget().text()
-                            for i in range(self.scroll_layout.count())
-                            if self.scroll_layout.itemAt(i).widget().isChecked()]
-
-        if conversion_type == 'Excel to CSV':
-            convert_excel(input_file, output_file, selected_columns)
-        elif conversion_type == 'CSV to Excel':
-            convert_csv_to_excel(input_file, output_file, selected_columns)
-        elif conversion_type == 'JSON to CSV':
-            convert_json_to_csv(input_file, output_file, selected_columns)
-        else:
-            QMessageBox.warning(self, "Conversion Type Error", "Invalid conversion type selected.")
+            if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
+                convert_excel(input_file, output_file, selected_columns)
+            elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
+                convert_csv_to_excel(input_file, output_file, selected_columns)
+            elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
+                convert_json_to_csv(input_file, output_file, selected_columns)
+            else:
+                QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_config.file_name}.")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
