@@ -3,16 +3,17 @@ import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
-    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget
+    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar
 )
 from PyQt5.QtCore import Qt
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
 
 class FileConfig(QWidget):
-    def __init__(self, file_path, file_name):
+    def __init__(self, file_path, file_name, close_callback):
         super().__init__()
         self.file_path = file_path
         self.file_name = file_name
+        self.close_callback = close_callback
         self.initUI()
 
     def initUI(self):
@@ -85,10 +86,13 @@ class FileConfig(QWidget):
                 for i in range(self.scroll_layout.count())
                 if self.scroll_layout.itemAt(i).widget().isChecked()]
 
+    def close_tab(self):
+        self.close_callback(self.file_name)
+
 class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.file_configs = []
+        self.file_configs = {}
         self.initUI()
 
     def initUI(self):
@@ -224,38 +228,57 @@ class ConverterApp(QWidget):
         for file_name in os.listdir(folder_path):
             file_path = os.path.join(folder_path, file_name)
             if os.path.isfile(file_path) and file_name.lower().endswith(('.xlsx', '.csv', '.json')):
-                file_config = FileConfig(file_path, file_name)
-                self.file_configs.append(file_config)
-                self.tab_widget.addTab(file_config, file_name)
-                if file_name.lower().endswith('.xlsx'):
-                    import pandas as pd
-                    xls = pd.ExcelFile(file_path)
-                    df = pd.read_excel(file_path, nrows=1)
-                    file_config.update_columns(df.columns.tolist())
-                elif file_name.lower().endswith('.csv'):
-                    import pandas as pd
-                    df = pd.read_csv(file_path, nrows=1)
-                    file_config.update_columns(df.columns.tolist())
-                elif file_name.lower().endswith('.json'):
-                    import json
-                    import pandas as pd
-                    data = []
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        for i, line in enumerate(f):
-                            if i >= 10:
-                                break
-                            data.append(json.loads(line.strip()))
-                    df = pd.json_normalize(data)
-                    file_config.update_columns(df.columns.tolist())
+                self.add_file_tab(file_path, file_name)
+
+    def add_closable_tab(self, widget, title):
+        tab_index = self.tab_widget.addTab(widget, title)
+        tab_button = QToolButton()
+        tab_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarCloseButton))
+        tab_button.clicked.connect(lambda: self.remove_file_tab(title))
+        self.tab_widget.tabBar().setTabButton(tab_index, QTabBar.RightSide, tab_button)
+        self.tab_widget.setCurrentIndex(tab_index)
+
+    def add_file_tab(self, file_path, file_name):
+        file_config = FileConfig(file_path, file_name, self.remove_file_tab)
+        self.file_configs[file_name] = file_config
+
+        self.add_closable_tab(file_config, file_name)
+
+        if file_name.lower().endswith('.xlsx'):
+            import pandas as pd
+            xls = pd.ExcelFile(file_path)
+            df = pd.read_excel(file_path, nrows=1)
+            file_config.update_columns(df.columns.tolist())
+        elif file_name.lower().endswith('.csv'):
+            import pandas as pd
+            df = pd.read_csv(file_path, nrows=1)
+            file_config.update_columns(df.columns.tolist())
+        elif file_name.lower().endswith('.json'):
+            import json
+            import pandas as pd
+            data = []
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for i, line in enumerate(f):
+                    if i >= 10:
+                        break
+                    data.append(json.loads(line.strip()))
+            df = pd.json_normalize(data)
+            file_config.update_columns(df.columns.tolist())
+
+    def remove_file_tab(self, file_name):
+        index = self.tab_widget.indexOf(self.file_configs[file_name])
+        if index != -1:
+            self.tab_widget.removeTab(index)
+            del self.file_configs[file_name]
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
-        for file_config in self.file_configs:
+        for file_name, file_config in self.file_configs.items():
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
 
-            output_file = os.path.join(output_folder, os.path.splitext(file_config.file_name)[0] + '_converted' + os.path.splitext(file_config.file_name)[1])
+            output_file = os.path.join(output_folder, os.path.splitext(file_name)[0] + '_converted' + os.path.splitext(file_name)[1])
 
             if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
                 convert_excel(input_file, output_file, selected_columns)
@@ -264,7 +287,7 @@ class ConverterApp(QWidget):
             elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
                 convert_json_to_csv(input_file, output_file, selected_columns)
             else:
-                QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_config.file_name}.")
+                QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_name}.")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
