@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
     QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSize
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
 
 class FileConfig(QWidget):
@@ -150,24 +150,22 @@ class ConverterApp(QWidget):
                 color: #FFFFFF;
                 border: 1px solid #5A5A5A;
             }
-            QTabWidget::pane { /* The tab widget frame */
+            QTabWidget::pane { 
                 border-top: 2px solid #C2C7CB;
             }
             QTabWidget::tab-bar {
-                left: 5px; /* move to the right by 5px */
+                left: 5px; 
             }
-            /* Style the tab using the tab sub-control. Note that
-                it reads QTabBar _not_ QTabWidget */
             QTabBar::tab {
                 background: #3E3E3E;
                 color: #FFFFFF;
                 border: 1px solid #5A5A5A;
-                border-bottom-color: #C2C7CB; /* same as the pane color */
+                border-bottom-color: #C2C7CB; 
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
                 min-width: 8ex;
                 padding: 2px;
-                font-size: 12px; /* Adjust font size for better readability */
+                font-size: 12px; 
             }
             QTabBar::tab:selected, QTabBar::tab:hover {
                 background: #5A5A5A;
@@ -234,6 +232,19 @@ class ConverterApp(QWidget):
         tab_index = self.tab_widget.addTab(widget, title)
         tab_button = QToolButton()
         tab_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarCloseButton))
+        tab_button.setIconSize(QSize(12, 12))  # Smaller icon size
+        tab_button.setStyleSheet("""
+            QToolButton {
+                color: white;
+                background-color: red;
+                border: none;
+                border-radius: 3px;
+                padding: 2px;
+            }
+            QToolButton:hover {
+                background-color: darkred;
+            }
+        """)  # Red background and white color
         tab_button.clicked.connect(lambda: self.remove_file_tab(title))
         self.tab_widget.tabBar().setTabButton(tab_index, QTabBar.RightSide, tab_button)
         self.tab_widget.setCurrentIndex(tab_index)
@@ -273,21 +284,34 @@ class ConverterApp(QWidget):
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
+        if not output_folder:
+            QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
+            return
+
         for file_name, file_config in self.file_configs.items():
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
 
-            output_file = os.path.join(output_folder, os.path.splitext(file_name)[0] + '_converted' + os.path.splitext(file_name)[1])
+            output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
+            output_file = os.path.join(output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
 
-            if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
-                convert_excel(input_file, output_file, selected_columns)
-            elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
-                convert_csv_to_excel(input_file, output_file, selected_columns)
-            elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
-                convert_json_to_csv(input_file, output_file, selected_columns)
-            else:
-                QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_name}.")
+            print(f"Converting {input_file} to {output_file} with columns: {selected_columns}")
+
+            try:
+                if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
+                    convert_excel(input_file, output_file, selected_columns)
+                elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
+                    convert_csv_to_excel(input_file, output_file, selected_columns)
+                elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
+                    convert_json_to_csv(input_file, output_file, selected_columns)
+                else:
+                    QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_name}.")
+            except Exception as e:
+                QMessageBox.critical(self, "Conversion Error", f"Failed to convert {file_name}: {e}")
+
+        QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
