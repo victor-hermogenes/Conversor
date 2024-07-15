@@ -105,6 +105,10 @@ class ConverterApp(QWidget):
         self.columns_label = QLabel('Select Columns:', self)
         left_layout.addWidget(self.columns_label)
 
+        self.select_all_button = QPushButton('Select All', self)
+        self.select_all_button.clicked.connect(self.toggle_select_all)
+        left_layout.addWidget(self.select_all_button)
+
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget(self.scroll_area)
@@ -164,6 +168,13 @@ class ConverterApp(QWidget):
             if widget is not None:
                 widget.deleteLater()
 
+    def toggle_select_all(self):
+        select_all = self.select_all_button.text() == 'Select All'
+        for i in range(self.scroll_layout.count()):
+            checkbox = self.scroll_layout.itemAt(i).widget()
+            checkbox.setChecked(select_all)
+        self.select_all_button.setText('Unselect All' if select_all else 'Select All')
+
     def update_table_preview(self, file_name):
         if file_name.endswith('.csv'):
             import pandas as pd
@@ -209,10 +220,7 @@ class ConverterApp(QWidget):
             QMessageBox.warning(self, "Conversion Type Error", "Invalid conversion type selected.")
 
 if __name__ == '__main__':
-    try:
-        app = QApplication(sys.argv)
-        ex = ConverterApp()
-        ex.show()
-        sys.exit(app.exec_())
-    except Exception as e:
-        print(f"Error: {e}")
+    app = QApplication(sys.argv)
+    ex = ConverterApp()
+    ex.show()
+    sys.exit(app.exec_())
