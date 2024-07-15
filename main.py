@@ -1,7 +1,10 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QComboBox, QMessageBox
-from functions import convert_excel
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
+    QPushButton, QFileDialog, QComboBox, QMessageBox
+)
+from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
 
 class ConverterApp(QWidget):
     def __init__(self):
@@ -10,7 +13,7 @@ class ConverterApp(QWidget):
 
     def initUI(self):
         self.setWindowTitle('EFC')
-        self.setGeometry(100, 100, 400, 250)
+        self.setGeometry(100, 100, 400, 300)
 
         self.setStyleSheet("""
             QWidget {
@@ -66,61 +69,59 @@ class ConverterApp(QWidget):
         self.input_button.clicked.connect(self.browse_input_file)
         layout.addWidget(self.input_button)
 
-        self.output_label = QLabel('Output Folder:', self)
+        self.output_label = QLabel('Output File:', self)
         layout.addWidget(self.output_label)
 
         self.output_line_edit = QLineEdit(self)
         layout.addWidget(self.output_line_edit)
 
         self.output_button = QPushButton('Browse', self)
-        self.output_button.clicked.connect(self.browse_output_folder)
+        self.output_button.clicked.connect(self.browse_output_file)
         layout.addWidget(self.output_button)
 
-        self.format_label = QLabel('Output Format:', self)
-        layout.addWidget(self.format_label)
+        self.type_label = QLabel('Conversion Type:', self)
+        layout.addWidget(self.type_label)
 
-        self.format_combo_box = QComboBox(self)
-        self.format_combo_box.addItems(["xlsx", "xls", "csv"])
-        layout.addWidget(self.format_combo_box)
+        self.type_combo = QComboBox(self)
+        self.type_combo.addItems(['Excel to CSV', 'CSV to Excel', 'JSON to CSV'])
+        layout.addWidget(self.type_combo)
 
         self.convert_button = QPushButton('Convert', self)
-        self.convert_button.clicked.connect(self.convert)
+        self.convert_button.clicked.connect(self.convert_file)
         layout.addWidget(self.convert_button)
 
         self.setLayout(layout)
 
     def browse_input_file(self):
         options = QFileDialog.Options()
-        file, _ = QFileDialog.getOpenFileName(self, "Select Input File", "", "Excel Files (*.xlsx *.xls)", options=options)
-        if file:
-            self.input_line_edit.setText(file)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select Input File", "", 
+                                                  "All Files (*);;Excel Files (*.xlsx);;CSV Files (*.csv);;JSON Files (*.json)", options=options)
+        if file_name:
+            self.input_line_edit.setText(file_name)
 
-    def browse_output_folder(self):
+    def browse_output_file(self):
         options = QFileDialog.Options()
-        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", options=options)
-        if folder:
-            self.output_line_edit.setText(folder)
+        file_name, _ = QFileDialog.getSaveFileName(self, "Select Output File", "", 
+                                                  "All Files (*);;CSV Files (*.csv);;Excel Files (*.xlsx)", options=options)
+        if file_name:
+            self.output_line_edit.setText(file_name)
 
-    def convert(self):
+    def convert_file(self):
         input_file = self.input_line_edit.text()
-        output_folder = self.output_line_edit.text()
-        output_format = self.format_combo_box.currentText()
+        output_file = self.output_line_edit.text()
+        conversion_type = self.type_combo.currentText()
 
-        if input_file and output_folder:
-            input_filename = os.path.basename(input_file)
-            base_name = os.path.splitext(input_filename)[0]
-            output_file = os.path.join(output_folder, f"{base_name}.{output_format}")
-
+        if conversion_type == 'Excel to CSV':
             convert_excel(input_file, output_file)
+        elif conversion_type == 'CSV to Excel':
+            convert_csv_to_excel(input_file, output_file)
+        elif conversion_type == 'JSON to CSV':
+            convert_json_to_csv(input_file, output_file)
+        else:
+            QMessageBox.warning(self, "Conversion Type Error", "Invalid conversion type selected.")
 
-        QMessageBox.information(self, "Conversiom Complete", f"File converted successfully to {output_file}")
-
-
-def main():
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     ex = ConverterApp()
     ex.show()
     sys.exit(app.exec_())
-
-if __name__ == '__main__':
-    main()
