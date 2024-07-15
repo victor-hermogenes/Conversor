@@ -48,6 +48,19 @@ class FileConfig(QWidget):
         self.scroll_area.setWidget(self.scroll_content)
         layout.addWidget(self.scroll_area)
 
+        self.fragment_checkbox = QCheckBox('Fragmentate', self)
+        self.fragment_checkbox.stateChanged.connect(self.toggle_fragmentation)
+        layout.addWidget(self.fragment_checkbox)
+
+        self.fragment_limit_label = QLabel('Fragment Size Limit (MB):', self)
+        self.fragment_limit_label.setEnabled(False)
+        layout.addWidget(self.fragment_limit_label)
+
+        self.fragment_limit_input = QLineEdit(self)
+        self.fragment_limit_input.setEnabled(False)
+        self.fragment_limit_input.setPlaceholderText('Enter size limit in MB')
+        layout.addWidget(self.fragment_limit_input)
+
         self.setStyleSheet("""
             QLabel {
                 color: #FFFFFF;
@@ -62,6 +75,11 @@ class FileConfig(QWidget):
                 border-radius: 3px;
             }
         """)
+
+    def toggle_fragmentation(self):
+        fragmentate = self.fragment_checkbox.isChecked()
+        self.fragment_limit_label.setEnabled(fragmentate)
+        self.fragment_limit_input.setEnabled(fragmentate)
 
     def toggle_select_all(self):
         select_all = self.select_all_checkbox.isChecked()
@@ -88,6 +106,17 @@ class FileConfig(QWidget):
         return [self.scroll_layout.itemAt(i).widget().text()
                 for i in range(self.scroll_layout.count())
                 if self.scroll_layout.itemAt(i).widget().isChecked()]
+
+    def get_fragmentation_info(self):
+        fragmentate = self.fragment_checkbox.isChecked()
+        fragment_limit = None
+        if fragmentate:
+            fragment_limit = self.fragment_limit_input.text()
+            if fragment_limit.isdigit():
+                fragment_limit = int(fragment_limit) * 1024 * 1024  # Convert MB to bytes
+            else:
+                fragment_limit = None
+        return fragmentate, fragment_limit
 
     def close_tab(self):
         self.close_callback(self.file_name)
@@ -297,11 +326,18 @@ class ConverterApp(QWidget):
             file_config.update_columns(df.columns.tolist())
 
     def remove_file_tab(self, file_name):
-        file_name = os.path.normpath(file_name)
-        index = self.tab_widget.indexOf(self.file_configs[file_name])
-        if index != -1:
-            self.tab_widget.removeTab(index)
-            del self.file_configs[file_name]
+        # Find the full file path using the file_name
+        full_file_path = None
+        for path in self.file_configs:
+            if os.path.basename(path) == file_name:
+                full_file_path = path
+                break
+
+        if full_file_path is not None:
+            index = self.tab_widget.indexOf(self.file_configs[full_file_path])
+            if index != -1:
+                self.tab_widget.removeTab(index)
+                del self.file_configs[full_file_path]
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
@@ -314,19 +350,21 @@ class ConverterApp(QWidget):
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
 
+            fragmentate, fragment_limit = file_config.get_fragmentation_info()
+
             file_name = os.path.basename(file_path)
             output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
             output_file = os.path.join(output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
 
-            print(f"Converting {input_file} to {output_file} with columns: {selected_columns}")
+            print(f"Converting {input_file} to {output_file} with columns: {selected_columns} and fragmentation: {fragmentate} with limit: {fragment_limit} bytes")
 
             try:
                 if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
-                    convert_excel(input_file, output_file, selected_columns)
+                    convert_excel(input_file, output_file, selected_columns, fragmentate, fragment_limit)
                 elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
-                    convert_csv_to_excel(input_file, output_file, selected_columns)
+                    convert_csv_to_excel(input_file, output_file, selected_columns, fragmentate, fragment_limit)
                 elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
-                    convert_json_to_csv(input_file, output_file, selected_columns)
+                    convert_json_to_csv(input_file, output_file, selected_columns, fragmentate, fragment_limit)
                 else:
                     QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_name}.")
             except Exception as e:
