@@ -9,11 +9,12 @@ from PyQt5.QtCore import Qt, QSize
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
 
 class FileConfig(QWidget):
-    def __init__(self, file_path, file_name, close_callback):
-        super().__init__()
-        self.file_path = file_path
+    def __init__(self, file_path, file_name, close_callback, parent):
+        super().__init__(parent)
+        self.file_path = os.path.normpath(file_path)
         self.file_name = file_name
         self.close_callback = close_callback
+        self.parent = parent
         self.initUI()
 
     def initUI(self):
@@ -67,11 +68,13 @@ class FileConfig(QWidget):
         for i in range(self.scroll_layout.count()):
             checkbox = self.scroll_layout.itemAt(i).widget()
             checkbox.setChecked(select_all)
+        self.parent.update_table_preview()
 
     def update_columns(self, columns):
         self.clear_columns()
         for column in columns:
             checkbox = QCheckBox(column, self)
+            checkbox.stateChanged.connect(lambda state, c=column: self.parent.update_table_preview())
             self.scroll_layout.addRow(checkbox)
 
     def clear_columns(self):
@@ -93,6 +96,7 @@ class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
         self.file_configs = {}
+        self.current_file = None
         self.initUI()
 
     def initUI(self):
@@ -170,40 +174,55 @@ class ConverterApp(QWidget):
             QTabBar::tab:selected, QTabBar::tab:hover {
                 background: #5A5A5A;
             }
+            QToolButton {
+                color: white;
+                background-color: red;
+                border: none;
+                border-radius: 3px;
+                padding: 2px;
+            }
+            QToolButton:hover {
+                background-color: darkred;
+            }
         """)
 
-        main_layout = QVBoxLayout()
+        main_layout = QHBoxLayout()
         self.setLayout(main_layout)
 
-        input_layout = QHBoxLayout()
-        main_layout.addLayout(input_layout)
+        left_layout = QVBoxLayout()
+        main_layout.addLayout(left_layout)
 
         self.input_label = QLabel('Input Folder:', self)
-        input_layout.addWidget(self.input_label)
+        left_layout.addWidget(self.input_label)
 
         self.input_line_edit = QLineEdit(self)
-        input_layout.addWidget(self.input_line_edit)
+        left_layout.addWidget(self.input_line_edit)
 
         self.input_button = QPushButton('Browse', self)
         self.input_button.clicked.connect(self.browse_input_folder)
-        input_layout.addWidget(self.input_button)
+        left_layout.addWidget(self.input_button)
 
         self.output_label = QLabel('Output Folder:', self)
-        input_layout.addWidget(self.output_label)
+        left_layout.addWidget(self.output_label)
 
         self.output_line_edit = QLineEdit(self)
-        input_layout.addWidget(self.output_line_edit)
+        left_layout.addWidget(self.output_line_edit)
 
         self.output_button = QPushButton('Browse', self)
         self.output_button.clicked.connect(self.browse_output_folder)
-        input_layout.addWidget(self.output_button)
+        left_layout.addWidget(self.output_button)
 
         self.tab_widget = QTabWidget(self)
-        main_layout.addWidget(self.tab_widget)
+        self.tab_widget.currentChanged.connect(self.update_table_preview)
+        left_layout.addWidget(self.tab_widget)
 
         self.convert_button = QPushButton('Convert', self)
         self.convert_button.clicked.connect(self.convert_files)
-        main_layout.addWidget(self.convert_button)
+        left_layout.addWidget(self.convert_button)
+
+        # Table to display data
+        self.table_widget = QTableWidget(self)
+        main_layout.addWidget(self.table_widget)
 
     def browse_input_folder(self):
         options = QFileDialog.Options()
@@ -224,7 +243,7 @@ class ConverterApp(QWidget):
         self.current_folder = folder_path
 
         for file_name in os.listdir(folder_path):
-            file_path = os.path.join(folder_path, file_name)
+            file_path = os.path.normpath(os.path.join(folder_path, file_name))
             if os.path.isfile(file_path) and file_name.lower().endswith(('.xlsx', '.csv', '.json')):
                 self.add_file_tab(file_path, file_name)
 
@@ -250,8 +269,9 @@ class ConverterApp(QWidget):
         self.tab_widget.setCurrentIndex(tab_index)
 
     def add_file_tab(self, file_path, file_name):
-        file_config = FileConfig(file_path, file_name, self.remove_file_tab)
-        self.file_configs[file_name] = file_config
+        file_path = os.path.normpath(file_path)
+        file_config = FileConfig(file_path, file_name, self.remove_file_tab, self)
+        self.file_configs[file_path] = file_config
 
         self.add_closable_tab(file_config, file_name)
 
@@ -277,6 +297,7 @@ class ConverterApp(QWidget):
             file_config.update_columns(df.columns.tolist())
 
     def remove_file_tab(self, file_name):
+        file_name = os.path.normpath(file_name)
         index = self.tab_widget.indexOf(self.file_configs[file_name])
         if index != -1:
             self.tab_widget.removeTab(index)
@@ -288,11 +309,12 @@ class ConverterApp(QWidget):
             QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
             return
 
-        for file_name, file_config in self.file_configs.items():
+        for file_path, file_config in self.file_configs.items():
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
 
+            file_name = os.path.basename(file_path)
             output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
             output_file = os.path.join(output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
 
@@ -312,6 +334,46 @@ class ConverterApp(QWidget):
 
         QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
 
+    def update_table_preview(self):
+        current_index = self.tab_widget.currentIndex()
+        if current_index == -1:
+            return
+        file_path = os.path.normpath(list(self.file_configs.keys())[current_index])
+        selected_columns = [self.file_configs[file_path].scroll_layout.itemAt(i).widget().text()
+                            for i in range(self.file_configs[file_path].scroll_layout.count())
+                            if self.file_configs[file_path].scroll_layout.itemAt(i).widget().isChecked()]
+
+        if not selected_columns:
+            self.table_widget.clear()
+            self.table_widget.setRowCount(0)
+            self.table_widget.setColumnCount(0)
+            return
+
+        if file_path.endswith('.csv'):
+            import pandas as pd
+            df = pd.read_csv(file_path, usecols=selected_columns, nrows=10)
+        elif file_path.endswith('.xlsx'):
+            import pandas as pd
+            df = pd.read_excel(file_path, usecols=selected_columns, nrows=10)
+        elif file_path.endswith('.json'):
+            import json
+            import pandas as pd
+            data = []
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for i, line in enumerate(f):
+                    if i >= 10:
+                        break
+                    data.append(json.loads(line.strip()))
+            df = pd.json_normalize(data)
+            df = df[selected_columns]
+
+        self.table_widget.setColumnCount(len(df.columns))
+        self.table_widget.setRowCount(len(df.index))
+        self.table_widget.setHorizontalHeaderLabels(df.columns)
+
+        for row_index, row_data in df.iterrows():
+            for col_index, value in enumerate(row_data):
+                self.table_widget.setItem(row_index, col_index, QTableWidgetItem(str(value)))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
