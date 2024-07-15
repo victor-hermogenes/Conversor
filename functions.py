@@ -17,6 +17,7 @@ def convert_json_to_csv(input_file, output_file, selected_columns):
 
         df = pd.json_normalize(data)
         df = df[selected_columns]  # Filter by selected columns
+        output_file = output_file.replace('.json', '.csv')
         df.to_csv(output_file, index=False, encoding='utf-8')
         print(f"File converted successfully from {input_file} to {output_file}")
     except Exception as e:
@@ -33,7 +34,7 @@ def convert_csv_to_excel(input_file, output_file, selected_columns):
     try:
         df = pd.read_csv(input_file, encoding='utf-8')
         df = df[selected_columns]  # Filter by selected columns
-        df.to_excel(output_file, index=False, encoding='utf-8')
+        df.to_excel(output_file, index=False)
         print(f"File converted successfully from {input_file} to {output_file}")
     except Exception as e:
         print(f"Error converting file: {e}")
@@ -55,7 +56,7 @@ def convert_excel(input_file, output_file, selected_columns):
         else:
             # Convert to Excel
             df = pd.read_excel(input_file, sheet_name=None)
-            with pd.ExcelWriter(output_file, engine='xlsxwriter', options={'strings_to_urls': False}) as writer:
+            with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
                 for sheet_name, data in df.items():
                     data = data[selected_columns]  # Filter by selected columns
                     data.to_excel(writer, sheet_name=sheet_name, index=False)
