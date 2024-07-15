@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
     QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout
 )
+from PyQt5.QtCore import Qt
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
 
 class ConverterApp(QWidget):
@@ -105,9 +106,9 @@ class ConverterApp(QWidget):
         self.columns_label = QLabel('Select Columns:', self)
         left_layout.addWidget(self.columns_label)
 
-        self.select_all_button = QPushButton('Select All', self)
-        self.select_all_button.clicked.connect(self.toggle_select_all)
-        left_layout.addWidget(self.select_all_button)
+        self.select_all_checkbox = QCheckBox('Select All', self)
+        self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
+        left_layout.addWidget(self.select_all_checkbox)
 
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
@@ -131,7 +132,7 @@ class ConverterApp(QWidget):
         if file_name:
             self.input_line_edit.setText(file_name)
             self.update_columns(file_name)
-            self.update_table_preview(file_name)
+            self.update_table_preview()
 
     def browse_output_file(self):
         options = QFileDialog.Options()
@@ -142,6 +143,7 @@ class ConverterApp(QWidget):
 
     def update_columns(self, file_name):
         self.clear_columns()
+        self.current_file = file_name
         if file_name.endswith('.csv'):
             import pandas as pd
             df = pd.read_csv(file_name, nrows=1)
@@ -152,13 +154,19 @@ class ConverterApp(QWidget):
             columns = df.columns.tolist()
         elif file_name.endswith('.json'):
             import json
+            import pandas as pd
+            data = []
             with open(file_name, 'r', encoding='utf-8') as f:
-                first_line = f.readline().strip()
-                first_record = json.loads(first_line)
-                columns = first_record.keys()
+                for i, line in enumerate(f):
+                    if i >= 10:
+                        break
+                    data.append(json.loads(line.strip()))
+            df = pd.json_normalize(data)
+            columns = df.columns.tolist()
 
         for column in columns:
             checkbox = QCheckBox(column, self)
+            checkbox.stateChanged.connect(lambda state, c=column: self.update_table_preview())
             self.scroll_layout.addRow(checkbox)
 
     def clear_columns(self):
@@ -169,19 +177,31 @@ class ConverterApp(QWidget):
                 widget.deleteLater()
 
     def toggle_select_all(self):
-        select_all = self.select_all_button.text() == 'Select All'
+        select_all = self.select_all_checkbox.isChecked()
         for i in range(self.scroll_layout.count()):
             checkbox = self.scroll_layout.itemAt(i).widget()
             checkbox.setChecked(select_all)
-        self.select_all_button.setText('Unselect All' if select_all else 'Select All')
+        self.update_table_preview()
 
-    def update_table_preview(self, file_name):
+    def update_table_preview(self):
+        selected_columns = [self.scroll_layout.itemAt(i).widget().text()
+                            for i in range(self.scroll_layout.count())
+                            if self.scroll_layout.itemAt(i).widget().isChecked()]
+
+        if not selected_columns:
+            self.table_widget.clear()
+            self.table_widget.setRowCount(0)
+            self.table_widget.setColumnCount(0)
+            return
+
+        file_name = self.current_file
+
         if file_name.endswith('.csv'):
             import pandas as pd
-            df = pd.read_csv(file_name, nrows=10)
+            df = pd.read_csv(file_name, usecols=selected_columns, nrows=10)
         elif file_name.endswith('.xlsx'):
             import pandas as pd
-            df = pd.read_excel(file_name, nrows=10)
+            df = pd.read_excel(file_name, usecols=selected_columns, nrows=10)
         elif file_name.endswith('.json'):
             import json
             import pandas as pd
@@ -192,6 +212,7 @@ class ConverterApp(QWidget):
                         break
                     data.append(json.loads(line.strip()))
             df = pd.json_normalize(data)
+            df = df[selected_columns]
 
         self.table_widget.setColumnCount(len(df.columns))
         self.table_widget.setRowCount(len(df.index))
