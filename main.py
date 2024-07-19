@@ -15,6 +15,7 @@ class FileConfig(QWidget):
         self.file_name = file_name
         self.close_callback = close_callback
         self.parent = parent
+        self.all_columns = []  # Store all columns here for filtering
         self.initUI()
 
     def initUI(self):
@@ -37,6 +38,12 @@ class FileConfig(QWidget):
         self.columns_label = QLabel('Select Columns:', self)
         layout.addWidget(self.columns_label)
 
+        # Add search bar
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setPlaceholderText('Search columns...')
+        self.search_bar.textChanged.connect(self.filter_columns)
+        layout.addWidget(self.search_bar)
+
         self.select_all_checkbox = QCheckBox('Select All', self)
         self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
         layout.addWidget(self.select_all_checkbox)
@@ -55,7 +62,7 @@ class FileConfig(QWidget):
             QCheckBox {
                 color: #FFFFFF;
             }
-            QComboBox, QScrollArea {
+            QLineEdit, QComboBox, QScrollArea {
                 background-color: #3E3E3E;
                 color: #FFFFFF;
                 border: 1px solid #5A5A5A;
@@ -63,15 +70,26 @@ class FileConfig(QWidget):
             }
         """)
 
+    def filter_columns(self):
+        search_text = self.search_bar.text().lower()
+        for i in range(self.scroll_layout.count()):
+            checkbox = self.scroll_layout.itemAt(i).widget()
+            if search_text in checkbox.text().lower():
+                checkbox.show()
+            else:
+                checkbox.hide()
+
     def toggle_select_all(self):
         select_all = self.select_all_checkbox.isChecked()
         for i in range(self.scroll_layout.count()):
             checkbox = self.scroll_layout.itemAt(i).widget()
-            checkbox.setChecked(select_all)
+            if checkbox.isVisible():
+                checkbox.setChecked(select_all)
         self.parent.update_table_preview()
 
     def update_columns(self, columns):
         self.clear_columns()
+        self.all_columns = columns  # Update all columns list
         for column in columns:
             checkbox = QCheckBox(column, self)
             checkbox.stateChanged.connect(lambda state, c=column: self.parent.update_table_preview())
