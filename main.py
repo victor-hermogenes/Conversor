@@ -3,7 +3,7 @@ import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
-    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar
+    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QSize
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
@@ -15,6 +15,9 @@ class FileConfig(QWidget):
         self.file_name = file_name
         self.close_callback = close_callback
         self.parent = parent
+        self.all_columns = []  # Store all columns here for filtering
+        self.column_checkboxes = {}  # Store checkboxes for columns
+        self.original_order = []  # Store the original order of column names
         self.initUI()
 
     def initUI(self):
@@ -37,6 +40,12 @@ class FileConfig(QWidget):
         self.columns_label = QLabel('Select Columns:', self)
         layout.addWidget(self.columns_label)
 
+        # Add search bar
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setPlaceholderText('Search columns...')
+        self.search_bar.textChanged.connect(self.filter_columns)
+        layout.addWidget(self.search_bar)
+
         self.select_all_checkbox = QCheckBox('Select All', self)
         self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
         layout.addWidget(self.select_all_checkbox)
@@ -48,6 +57,11 @@ class FileConfig(QWidget):
         self.scroll_area.setWidget(self.scroll_content)
         layout.addWidget(self.scroll_area)
 
+        # Add "Copy Selection To" button
+        self.copy_selection_button = QPushButton('Copy Selection To', self)
+        self.copy_selection_button.clicked.connect(self.copy_selection_to)
+        layout.addWidget(self.copy_selection_button)
+
         self.setStyleSheet("""
             QLabel {
                 color: #FFFFFF;
@@ -55,7 +69,7 @@ class FileConfig(QWidget):
             QCheckBox {
                 color: #FFFFFF;
             }
-            QComboBox, QScrollArea {
+            QLineEdit, QComboBox, QScrollArea, QPushButton {
                 background-color: #3E3E3E;
                 color: #FFFFFF;
                 border: 1px solid #5A5A5A;
@@ -63,34 +77,111 @@ class FileConfig(QWidget):
             }
         """)
 
+    def filter_columns(self):
+        search_text = self.search_bar.text().lower()
+        if search_text == '':
+            # Clear layout and restore original order
+            for column in self.original_order:
+                self.column_checkboxes[column].setParent(None)  # Remove from layout
+                self.scroll_layout.addRow(self.column_checkboxes[column])
+                self.column_checkboxes[column].show()  # Ensure all checkboxes are visible
+        else:
+            for column, checkbox in self.column_checkboxes.items():
+                checkbox.setParent(None)  # Remove from layout
+                if search_text in column.lower():
+                    self.scroll_layout.addRow(checkbox)
+                    checkbox.show()
+                else:
+                    checkbox.hide()
+
     def toggle_select_all(self):
         select_all = self.select_all_checkbox.isChecked()
-        for i in range(self.scroll_layout.count()):
-            checkbox = self.scroll_layout.itemAt(i).widget()
-            checkbox.setChecked(select_all)
+        for checkbox in self.column_checkboxes.values():
+            if checkbox.isVisible():
+                checkbox.setChecked(select_all)
         self.parent.update_table_preview()
 
     def update_columns(self, columns):
         self.clear_columns()
+        self.all_columns = columns  # Update all columns list
+        self.original_order = columns[:]  # Store the original order
         for column in columns:
             checkbox = QCheckBox(column, self)
             checkbox.stateChanged.connect(lambda state, c=column: self.parent.update_table_preview())
+            self.column_checkboxes[column] = checkbox
             self.scroll_layout.addRow(checkbox)
 
     def clear_columns(self):
-        while self.scroll_layout.count():
-            item = self.scroll_layout.takeAt(0)
-            widget = item.widget()
+        for i in reversed(range(self.scroll_layout.count())):
+            widget = self.scroll_layout.itemAt(i).widget()
             if widget is not None:
-                widget.deleteLater()
+                widget.setParent(None)
 
     def get_selected_columns(self):
-        return [self.scroll_layout.itemAt(i).widget().text()
-                for i in range(self.scroll_layout.count())
-                if self.scroll_layout.itemAt(i).widget().isChecked()]
+        return [column for column, checkbox in self.column_checkboxes.items() if checkbox.isChecked()]
 
     def close_tab(self):
         self.close_callback(self.file_name)
+
+    def copy_selection_to(self):
+        selected_columns = self.get_selected_columns()
+        dialog = CopySelectionDialog(self.parent, selected_columns)
+        if dialog.exec_() == QDialog.Accepted:
+            target_sheets = dialog.get_selected_sheets()
+            for sheet_name in target_sheets:
+                if sheet_name in self.parent.file_configs:
+                    self.parent.file_configs[sheet_name].set_columns(selected_columns)
+        self.parent.update_table_preview()
+
+    def set_columns(self, selected_columns):
+        for column, checkbox in self.column_checkboxes.items():
+            checkbox.setChecked(column in selected_columns)
+        self.parent.update_table_preview()
+
+class CopySelectionDialog(QDialog):
+    def __init__(self, parent, selected_columns):
+        super().__init__(parent)
+        self.setWindowTitle('Copy Selection To')
+        self.selected_columns = selected_columns
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.sheets_label = QLabel('Select sheets to copy the selection to:', self)
+        layout.addWidget(self.sheets_label)
+
+        # Add "Select All" checkbox
+        self.select_all_checkbox = QCheckBox('Select All', self)
+        self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
+        layout.addWidget(self.select_all_checkbox)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget(self.scroll_area)
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_area.setWidget(self.scroll_content)
+        layout.addWidget(self.scroll_area)
+
+        self.sheet_checkboxes = {}
+        for sheet_name, file_config in self.parent().file_configs.items():
+            checkbox = QCheckBox(sheet_name, self)
+            self.sheet_checkboxes[sheet_name] = checkbox
+            self.scroll_layout.addWidget(checkbox)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+    def toggle_select_all(self):
+        select_all = self.select_all_checkbox.isChecked()
+        for checkbox in self.sheet_checkboxes.values():
+            checkbox.setChecked(select_all)
+
+    def get_selected_sheets(self):
+        return [sheet for sheet, checkbox in self.sheet_checkboxes.items() if checkbox.isChecked()]
 
 class ConverterApp(QWidget):
     def __init__(self):
@@ -264,7 +355,7 @@ class ConverterApp(QWidget):
                 background-color: darkred;
             }
         """)  # Red background and white color
-        tab_button.clicked.connect(lambda: self.remove_file_tab(title))
+        tab_button.clicked.connect(lambda: self.remove_file_tab(widget))
         self.tab_widget.tabBar().setTabButton(tab_index, QTabBar.RightSide, tab_button)
         self.tab_widget.setCurrentIndex(tab_index)
 
@@ -296,12 +387,14 @@ class ConverterApp(QWidget):
             df = pd.json_normalize(data)
             file_config.update_columns(df.columns.tolist())
 
-    def remove_file_tab(self, file_name):
-        file_name = os.path.normpath(file_name)
-        index = self.tab_widget.indexOf(self.file_configs[file_name])
-        if index != -1:
-            self.tab_widget.removeTab(index)
-            del self.file_configs[file_name]
+    def remove_file_tab(self, file_config_widget):
+        for file_path, file_config in self.file_configs.items():
+            if file_config == file_config_widget:
+                index = self.tab_widget.indexOf(file_config_widget)
+                if index != -1:
+                    self.tab_widget.removeTab(index)
+                    del self.file_configs[file_path]
+                break
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
@@ -309,7 +402,19 @@ class ConverterApp(QWidget):
             QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
             return
 
-        for file_path, file_config in self.file_configs.items():
+        progress_dialog = QProgressDialog("Converting files...", "Cancel", 0, len(self.file_configs), self)
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+
+        for i, (file_path, file_config) in enumerate(self.file_configs.items()):
+            if progress_dialog.wasCanceled():
+                break
+
+            progress_dialog.setLabelText(f"Converting {os.path.basename(file_path)}...")
+            progress_dialog.setValue(i + 1)
+            QApplication.processEvents()
+
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
@@ -332,13 +437,14 @@ class ConverterApp(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Conversion Error", f"Failed to convert {file_name}: {e}")
 
+        progress_dialog.setValue(len(self.file_configs))
         QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
 
     def update_table_preview(self):
         current_index = self.tab_widget.currentIndex()
         if current_index == -1:
             return
-        file_path = os.path.normpath(list(self.file_configs.keys())[current_index])
+        file_path = list(self.file_configs.keys())[current_index]
         selected_columns = [self.file_configs[file_path].scroll_layout.itemAt(i).widget().text()
                             for i in range(self.file_configs[file_path].scroll_layout.count())
                             if self.file_configs[file_path].scroll_layout.itemAt(i).widget().isChecked()]
