@@ -3,7 +3,7 @@ import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
-    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar
+    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QDialog, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QSize
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
@@ -57,6 +57,11 @@ class FileConfig(QWidget):
         self.scroll_area.setWidget(self.scroll_content)
         layout.addWidget(self.scroll_area)
 
+        # Add "Copy Selection To" button
+        self.copy_selection_button = QPushButton('Copy Selection To', self)
+        self.copy_selection_button.clicked.connect(self.copy_selection_to)
+        layout.addWidget(self.copy_selection_button)
+
         self.setStyleSheet("""
             QLabel {
                 color: #FFFFFF;
@@ -64,7 +69,7 @@ class FileConfig(QWidget):
             QCheckBox {
                 color: #FFFFFF;
             }
-            QLineEdit, QComboBox, QScrollArea {
+            QLineEdit, QComboBox, QScrollArea, QPushButton {
                 background-color: #3E3E3E;
                 color: #FFFFFF;
                 border: 1px solid #5A5A5A;
@@ -118,6 +123,59 @@ class FileConfig(QWidget):
     def close_tab(self):
         self.close_callback(self.file_name)
 
+    def copy_selection_to(self):
+        selected_columns = self.get_selected_columns()
+        dialog = CopySelectionDialog(self.parent, selected_columns)
+        if dialog.exec_() == QDialog.Accepted:
+            target_sheets = dialog.get_selected_sheets()
+            for sheet_name in target_sheets:
+                if sheet_name in self.parent.file_configs:
+                    self.parent.file_configs[sheet_name].set_columns(selected_columns)
+        self.parent.update_table_preview()
+
+    def set_columns(self, selected_columns):
+        for column, checkbox in self.column_checkboxes.items():
+            checkbox.setChecked(column in selected_columns)
+        self.parent.update_table_preview()
+
+class CopySelectionDialog(QDialog):
+    def __init__(self, parent, selected_columns):
+        super().__init__(parent)
+        self.setWindowTitle('Copy Selection To')
+        self.selected_columns = selected_columns
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.sheets_label = QLabel('Select sheets to copy the selection to:', self)
+        layout.addWidget(self.sheets_label)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget(self.scroll_area)
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_area.setWidget(self.scroll_content)
+        layout.addWidget(self.scroll_area)
+
+        self.sheet_checkboxes = {}
+        for sheet_name, file_config in self.parent().file_configs.items():
+            checkbox = QCheckBox(sheet_name, self)
+            self.sheet_checkboxes[sheet_name] = checkbox
+            self.scroll_layout.addWidget(checkbox)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+    def get_selected_sheets(self):
+        return [sheet for sheet, checkbox in self.sheet_checkboxes.items() if checkbox.isChecked()]
+
+### Updated `ConverterApp` class
+
+```python
 class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
