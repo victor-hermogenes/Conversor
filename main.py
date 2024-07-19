@@ -3,7 +3,7 @@ import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
-    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QDialog, QDialogButtonBox
+    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog
 )
 from PyQt5.QtCore import Qt, QSize
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
@@ -173,7 +173,6 @@ class CopySelectionDialog(QDialog):
     def get_selected_sheets(self):
         return [sheet for sheet, checkbox in self.sheet_checkboxes.items() if checkbox.isChecked()]
 
-### Updated `ConverterApp` class
 class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -346,7 +345,7 @@ class ConverterApp(QWidget):
                 background-color: darkred;
             }
         """)  # Red background and white color
-        tab_button.clicked.connect(lambda: self.remove_file_tab(title))
+        tab_button.clicked.connect(lambda: self.remove_file_tab(widget))
         self.tab_widget.tabBar().setTabButton(tab_index, QTabBar.RightSide, tab_button)
         self.tab_widget.setCurrentIndex(tab_index)
 
@@ -378,12 +377,14 @@ class ConverterApp(QWidget):
             df = pd.json_normalize(data)
             file_config.update_columns(df.columns.tolist())
 
-    def remove_file_tab(self, file_name):
-        file_name = os.path.normpath(file_name)
-        index = self.tab_widget.indexOf(self.file_configs[file_name])
-        if index != -1:
-            self.tab_widget.removeTab(index)
-            del self.file_configs[file_name]
+    def remove_file_tab(self, file_config_widget):
+        for file_path, file_config in self.file_configs.items():
+            if file_config == file_config_widget:
+                index = self.tab_widget.indexOf(file_config_widget)
+                if index != -1:
+                    self.tab_widget.removeTab(index)
+                    del self.file_configs[file_path]
+                break
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
@@ -391,7 +392,19 @@ class ConverterApp(QWidget):
             QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
             return
 
-        for file_path, file_config in self.file_configs.items():
+        progress_dialog = QProgressDialog("Converting files...", "Cancel", 0, len(self.file_configs), self)
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+
+        for i, (file_path, file_config) in enumerate(self.file_configs.items()):
+            if progress_dialog.wasCanceled():
+                break
+
+            progress_dialog.setLabelText(f"Converting {os.path.basename(file_path)}...")
+            progress_dialog.setValue(i + 1)
+            QApplication.processEvents()
+
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
@@ -414,13 +427,14 @@ class ConverterApp(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Conversion Error", f"Failed to convert {file_name}: {e}")
 
+        progress_dialog.setValue(len(self.file_configs))
         QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
 
     def update_table_preview(self):
         current_index = self.tab_widget.currentIndex()
         if current_index == -1:
             return
-        file_path = os.path.normpath(list(self.file_configs.keys())[current_index])
+        file_path = list(self.file_configs.keys())[current_index]
         selected_columns = [self.file_configs[file_path].scroll_layout.itemAt(i).widget().text()
                             for i in range(self.file_configs[file_path].scroll_layout.count())
                             if self.file_configs[file_path].scroll_layout.itemAt(i).widget().isChecked()]
