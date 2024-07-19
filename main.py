@@ -16,6 +16,8 @@ class FileConfig(QWidget):
         self.close_callback = close_callback
         self.parent = parent
         self.all_columns = []  # Store all columns here for filtering
+        self.column_checkboxes = {}  # Store checkboxes for columns
+        self.original_order = []  # Store the original order of column names
         self.initUI()
 
     def initUI(self):
@@ -72,17 +74,24 @@ class FileConfig(QWidget):
 
     def filter_columns(self):
         search_text = self.search_bar.text().lower()
-        for i in range(self.scroll_layout.count()):
-            checkbox = self.scroll_layout.itemAt(i).widget()
-            if search_text in checkbox.text().lower():
-                checkbox.show()
-            else:
-                checkbox.hide()
+        if search_text == '':
+            # Clear layout and restore original order
+            for column in self.original_order:
+                self.column_checkboxes[column].setParent(None)  # Remove from layout
+                self.scroll_layout.addRow(self.column_checkboxes[column])
+                self.column_checkboxes[column].show()  # Ensure all checkboxes are visible
+        else:
+            for column, checkbox in self.column_checkboxes.items():
+                checkbox.setParent(None)  # Remove from layout
+                if search_text in column.lower():
+                    self.scroll_layout.addRow(checkbox)
+                    checkbox.show()
+                else:
+                    checkbox.hide()
 
     def toggle_select_all(self):
         select_all = self.select_all_checkbox.isChecked()
-        for i in range(self.scroll_layout.count()):
-            checkbox = self.scroll_layout.itemAt(i).widget()
+        for checkbox in self.column_checkboxes.values():
             if checkbox.isVisible():
                 checkbox.setChecked(select_all)
         self.parent.update_table_preview()
@@ -90,22 +99,21 @@ class FileConfig(QWidget):
     def update_columns(self, columns):
         self.clear_columns()
         self.all_columns = columns  # Update all columns list
+        self.original_order = columns[:]  # Store the original order
         for column in columns:
             checkbox = QCheckBox(column, self)
             checkbox.stateChanged.connect(lambda state, c=column: self.parent.update_table_preview())
+            self.column_checkboxes[column] = checkbox
             self.scroll_layout.addRow(checkbox)
 
     def clear_columns(self):
-        while self.scroll_layout.count():
-            item = self.scroll_layout.takeAt(0)
-            widget = item.widget()
+        for i in reversed(range(self.scroll_layout.count())):
+            widget = self.scroll_layout.itemAt(i).widget()
             if widget is not None:
-                widget.deleteLater()
+                widget.setParent(None)
 
     def get_selected_columns(self):
-        return [self.scroll_layout.itemAt(i).widget().text()
-                for i in range(self.scroll_layout.count())
-                if self.scroll_layout.itemAt(i).widget().isChecked()]
+        return [column for column, checkbox in self.column_checkboxes.items() if checkbox.isChecked()]
 
     def close_tab(self):
         self.close_callback(self.file_name)
