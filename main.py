@@ -3,7 +3,7 @@ import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
-    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog
+    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QSize
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
@@ -152,6 +152,11 @@ class CopySelectionDialog(QDialog):
         self.sheets_label = QLabel('Select sheets to copy the selection to:', self)
         layout.addWidget(self.sheets_label)
 
+        # Add "Select All" checkbox
+        self.select_all_checkbox = QCheckBox('Select All', self)
+        self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
+        layout.addWidget(self.select_all_checkbox)
+
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget(self.scroll_area)
@@ -169,6 +174,11 @@ class CopySelectionDialog(QDialog):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
+
+    def toggle_select_all(self):
+        select_all = self.select_all_checkbox.isChecked()
+        for checkbox in self.sheet_checkboxes.values():
+            checkbox.setChecked(select_all)
 
     def get_selected_sheets(self):
         return [sheet for sheet, checkbox in self.sheet_checkboxes.items() if checkbox.isChecked()]
