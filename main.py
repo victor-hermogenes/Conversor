@@ -174,8 +174,6 @@ class CopySelectionDialog(QDialog):
         return [sheet for sheet, checkbox in self.sheet_checkboxes.items() if checkbox.isChecked()]
 
 ### Updated `ConverterApp` class
-
-```python
 class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
