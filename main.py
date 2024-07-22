@@ -1,12 +1,13 @@
 import sys
 import os
+import threading
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
     QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QSize
-from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
+from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel, fragment_file
 
 class FileConfig(QWidget):
     def __init__(self, file_path, file_name, close_callback, parent):
@@ -183,6 +184,46 @@ class CopySelectionDialog(QDialog):
     def get_selected_sheets(self):
         return [sheet for sheet, checkbox in self.sheet_checkboxes.items() if checkbox.isChecked()]
 
+class WorkerThread(threading.Thread):
+    def __init__(self, file_configs, output_folder, fragment_size_mb, update_progress, conversion_complete):
+        super().__init__()
+        self.file_configs = file_configs
+        self.output_folder = output_folder
+        self.fragment_size_mb = fragment_size_mb
+        self.update_progress = update_progress
+        self.conversion_complete = conversion_complete
+
+    def run(self):
+        total_files = len(self.file_configs)
+        for i, (file_path, file_config) in enumerate(self.file_configs.items()):
+            conversion_type = file_config.type_combo.currentText()
+            selected_columns = file_config.get_selected_columns()
+            input_file = file_config.file_path
+
+            file_name = os.path.basename(file_path)
+            output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
+            output_file = os.path.join(self.output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
+
+            try:
+                if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
+                    convert_excel(input_file, output_file, selected_columns)
+                elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
+                    convert_csv_to_excel(input_file, output_file, selected_columns)
+                elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
+                    convert_json_to_csv(input_file, output_file, selected_columns)
+                else:
+                    continue
+
+                if self.fragment_size_mb:
+                    fragment_file(output_file, self.fragment_size_mb)
+
+            except Exception as e:
+                print(f"Failed to convert {file_name}: {e}")
+
+            self.update_progress(i + 1, total_files)
+
+        self.conversion_complete()
+
 class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -303,6 +344,18 @@ class ConverterApp(QWidget):
         self.output_button.clicked.connect(self.browse_output_folder)
         left_layout.addWidget(self.output_button)
 
+        self.fragment_checkbox = QCheckBox('Enable Fragmentation', self)
+        self.fragment_checkbox.stateChanged.connect(self.toggle_fragmentation)
+        left_layout.addWidget(self.fragment_checkbox)
+
+        self.fragment_size_label = QLabel('Fragment Size (MB):', self)
+        left_layout.addWidget(self.fragment_size_label)
+
+        self.fragment_size_line_edit = QLineEdit(self)
+        self.fragment_size_line_edit.setPlaceholderText('Enter fragment size in MB')
+        self.fragment_size_line_edit.setEnabled(False)  # Disable by default
+        left_layout.addWidget(self.fragment_size_line_edit)
+
         self.tab_widget = QTabWidget(self)
         self.tab_widget.currentChanged.connect(self.update_table_preview)
         left_layout.addWidget(self.tab_widget)
@@ -314,6 +367,9 @@ class ConverterApp(QWidget):
         # Table to display data
         self.table_widget = QTableWidget(self)
         main_layout.addWidget(self.table_widget)
+
+    def toggle_fragmentation(self):
+        self.fragment_size_line_edit.setEnabled(self.fragment_checkbox.isChecked())
 
     def browse_input_folder(self):
         options = QFileDialog.Options()
@@ -398,6 +454,9 @@ class ConverterApp(QWidget):
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
+        fragment_size = self.fragment_size_line_edit.text()
+        fragment_size_mb = float(fragment_size) if self.fragment_checkbox.isChecked() and fragment_size else None
+
         if not output_folder:
             QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
             return
@@ -407,38 +466,17 @@ class ConverterApp(QWidget):
         progress_dialog.setMinimumDuration(0)
         progress_dialog.setValue(0)
 
-        for i, (file_path, file_config) in enumerate(self.file_configs.items()):
+        def update_progress(value, total):
+            progress_dialog.setValue(value)
             if progress_dialog.wasCanceled():
-                break
+                worker_thread.join(0)  # Attempt to stop the thread if the user cancels
 
-            progress_dialog.setLabelText(f"Converting {os.path.basename(file_path)}...")
-            progress_dialog.setValue(i + 1)
-            QApplication.processEvents()
+        def conversion_complete():
+            progress_dialog.setValue(len(self.file_configs))
+            QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
 
-            conversion_type = file_config.type_combo.currentText()
-            selected_columns = file_config.get_selected_columns()
-            input_file = file_config.file_path
-
-            file_name = os.path.basename(file_path)
-            output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
-            output_file = os.path.join(output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
-
-            print(f"Converting {input_file} to {output_file} with columns: {selected_columns}")
-
-            try:
-                if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
-                    convert_excel(input_file, output_file, selected_columns)
-                elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
-                    convert_csv_to_excel(input_file, output_file, selected_columns)
-                elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
-                    convert_json_to_csv(input_file, output_file, selected_columns)
-                else:
-                    QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_name}.")
-            except Exception as e:
-                QMessageBox.critical(self, "Conversion Error", f"Failed to convert {file_name}: {e}")
-
-        progress_dialog.setValue(len(self.file_configs))
-        QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
+        worker_thread = WorkerThread(self.file_configs, output_folder, fragment_size_mb, update_progress, conversion_complete)
+        worker_thread.start()
 
     def update_table_preview(self):
         current_index = self.tab_widget.currentIndex()

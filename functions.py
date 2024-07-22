@@ -1,14 +1,31 @@
 import pandas as pd
 import json
+import math
+import os
+
+def save_fragmented_csv(df, output_file, fragment_size_mb):
+    rows_per_fragment = math.ceil(fragment_size_mb * 1024 * 1024 / df.memory_usage(index=True, deep=True).sum() * len(df))
+    total_fragments = math.ceil(len(df) / rows_per_fragment)
+
+    base_name, ext = os.path.splitext(output_file)
+    for i in range(total_fragments):
+        fragment_df = df.iloc[i * rows_per_fragment:(i + 1) * rows_per_fragment]
+        fragment_file = f"{base_name}_part{i+1}{ext}"
+        fragment_df.to_csv(fragment_file, index=False)
+        print(f"Saved fragment {i+1} to {fragment_file}")
+
+def save_fragmented_excel(df, output_file, fragment_size_mb):
+    rows_per_fragment = math.ceil(fragment_size_mb * 1024 * 1024 / df.memory_usage(index=True, deep=True).sum() * len(df))
+    total_fragments = math.ceil(len(df) / rows_per_fragment)
+
+    base_name, ext = os.path.splitext(output_file)
+    for i in range(total_fragments):
+        fragment_df = df.iloc[i * rows_per_fragment:(i + 1) * rows_per_fragment]
+        fragment_file = f"{base_name}_part{i+1}{ext}"
+        fragment_df.to_excel(fragment_file, index=False)
+        print(f"Saved fragment {i+1} to {fragment_file}")
 
 def convert_json_to_csv(input_file, output_file, selected_columns):
-    """
-    Converts a JSON file to a CSV file.
-
-    :param input_file: Path to the input JSON file.
-    :param output_file: Path to save the converted CSV file.
-    :param selected_columns: List of columns to include in the output file.
-    """
     try:
         data = []
         with open(input_file, 'r', encoding='utf-8') as f:
@@ -16,51 +33,44 @@ def convert_json_to_csv(input_file, output_file, selected_columns):
                 data.append(json.loads(line.strip()))
 
         df = pd.json_normalize(data)
-        df = df[selected_columns]  # Filter by selected columns
-        output_file = output_file.replace('.json', '.csv')
+        df = df[selected_columns]
+
         df.to_csv(output_file, index=False, encoding='utf-8')
         print(f"File converted successfully from {input_file} to {output_file}")
     except Exception as e:
         print(f"Error converting file: {e}")
 
 def convert_csv_to_excel(input_file, output_file, selected_columns):
-    """
-    Converts a CSV file to an Excel file.
-
-    :param input_file: Path to the input CSV file.
-    :param output_file: Path to save the converted Excel file.
-    :param selected_columns: List of columns to include in the output file.
-    """
     try:
         df = pd.read_csv(input_file, encoding='utf-8')
-        df = df[selected_columns]  # Filter by selected columns
+        df = df[selected_columns]
+
         df.to_excel(output_file, index=False)
         print(f"File converted successfully from {input_file} to {output_file}")
     except Exception as e:
         print(f"Error converting file: {e}")
 
 def convert_excel(input_file, output_file, selected_columns):
-    """
-    Converts an Excel file from one format to another.
-
-    :param input_file: Path to the input Excel file.
-    :param output_file: Path to save the converted file.
-    :param selected_columns: List of columns to include in the output file.
-    """
     try:
+        df = pd.read_excel(input_file, sheet_name=0)
+        df = df[selected_columns]
+
         if output_file.endswith(".csv"):
-            # Convert to CSV
-            df = pd.read_excel(input_file, sheet_name=0)
-            df = df[selected_columns]  # Filter by selected columns
             df.to_csv(output_file, index=False, encoding='utf-8')
         else:
-            # Convert to Excel
-            df = pd.read_excel(input_file, sheet_name=None)
-            with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
-                for sheet_name, data in df.items():
-                    data = data[selected_columns]  # Filter by selected columns
-                    data.to_excel(writer, sheet_name=sheet_name, index=False)
-
+            df.to_excel(output_file, index=False)
         print(f"File converted successfully from {input_file} to {output_file}")
     except Exception as e:
         print(f"Error converting file: {e}")
+
+def fragment_file(output_file, fragment_size_mb):
+    try:
+        if output_file.endswith('.csv'):
+            df = pd.read_csv(output_file, encoding='utf-8')
+            save_fragmented_csv(df, output_file, fragment_size_mb)
+        elif output_file.endswith('.xlsx'):
+            df = pd.read_excel(output_file)
+            save_fragmented_excel(df, output_file, fragment_size_mb)
+        print(f"File fragmented successfully from {output_file}")
+    except Exception as e:
+        print(f"Error fragmenting file: {e}")
