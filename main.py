@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QSize
-from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel
+from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel, fragment_file
 
 class FileConfig(QWidget):
     def __init__(self, file_path, file_name, close_callback, parent):
@@ -303,6 +303,18 @@ class ConverterApp(QWidget):
         self.output_button.clicked.connect(self.browse_output_folder)
         left_layout.addWidget(self.output_button)
 
+        self.fragment_checkbox = QCheckBox('Enable Fragmentation', self)
+        self.fragment_checkbox.stateChanged.connect(self.toggle_fragmentation)
+        left_layout.addWidget(self.fragment_checkbox)
+
+        self.fragment_size_label = QLabel('Fragment Size (MB):', self)
+        left_layout.addWidget(self.fragment_size_label)
+
+        self.fragment_size_line_edit = QLineEdit(self)
+        self.fragment_size_line_edit.setPlaceholderText('Enter fragment size in MB')
+        self.fragment_size_line_edit.setEnabled(False)  # Disable by default
+        left_layout.addWidget(self.fragment_size_line_edit)
+
         self.tab_widget = QTabWidget(self)
         self.tab_widget.currentChanged.connect(self.update_table_preview)
         left_layout.addWidget(self.tab_widget)
@@ -314,6 +326,9 @@ class ConverterApp(QWidget):
         # Table to display data
         self.table_widget = QTableWidget(self)
         main_layout.addWidget(self.table_widget)
+
+    def toggle_fragmentation(self):
+        self.fragment_size_line_edit.setEnabled(self.fragment_checkbox.isChecked())
 
     def browse_input_folder(self):
         options = QFileDialog.Options()
@@ -398,6 +413,9 @@ class ConverterApp(QWidget):
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
+        fragment_size = self.fragment_size_line_edit.text()
+        fragment_size_mb = float(fragment_size) if self.fragment_checkbox.isChecked() and fragment_size else None
+
         if not output_folder:
             QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
             return
@@ -434,6 +452,10 @@ class ConverterApp(QWidget):
                     convert_json_to_csv(input_file, output_file, selected_columns)
                 else:
                     QMessageBox.warning(self, "Conversion Type Error", f"Invalid conversion type selected for file {file_name}.")
+                
+                if fragment_size_mb:
+                    fragment_file(output_file, fragment_size_mb)
+                    
             except Exception as e:
                 QMessageBox.critical(self, "Conversion Error", f"Failed to convert {file_name}: {e}")
 
