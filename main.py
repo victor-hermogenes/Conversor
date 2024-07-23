@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QIcon
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel, fragment_file
 import pandas as pd
 
@@ -24,6 +25,7 @@ class FileConfig(QWidget):
         self.initUI()
 
     def initUI(self):
+        self.setWindowIcon(QIcon('conversor.ico'))
         layout = QVBoxLayout()
         self.setLayout(layout)
 
@@ -142,6 +144,7 @@ class CopySelectionDialog(QDialog):
     def __init__(self, parent, selected_columns):
         super().__init__(parent)
         self.setWindowTitle('Copy Selection To')
+        self.setWindowIcon(QIcon('conversor.ico'))
         self.selected_columns = selected_columns
         self.initUI()
 
@@ -231,6 +234,7 @@ class ConverterApp(QWidget):
 
     def initUI(self):
         self.setWindowTitle('EFC')
+        self.setWindowIcon(QIcon('conversor.ico'))
         self.setGeometry(100, 100, 1000, 600)
 
         self.setStyleSheet("""
@@ -562,6 +566,7 @@ class ConverterApp(QWidget):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon('conversor.ico'))
     ex = ConverterApp()
     ex.show()
     sys.exit(app.exec_())
