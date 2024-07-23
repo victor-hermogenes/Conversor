@@ -1,6 +1,7 @@
 import sys
 import os
 import threading
+import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
@@ -8,6 +9,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QSize
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel, fragment_file
+import pandas as pd
 
 class FileConfig(QWidget):
     def __init__(self, file_path, file_name, close_callback, parent):
@@ -41,7 +43,6 @@ class FileConfig(QWidget):
         self.columns_label = QLabel('Select Columns:', self)
         layout.addWidget(self.columns_label)
 
-        # Add search bar
         self.search_bar = QLineEdit(self)
         self.search_bar.setPlaceholderText('Search columns...')
         self.search_bar.textChanged.connect(self.filter_columns)
@@ -58,7 +59,6 @@ class FileConfig(QWidget):
         self.scroll_area.setWidget(self.scroll_content)
         layout.addWidget(self.scroll_area)
 
-        # Add "Copy Selection To" button
         self.copy_selection_button = QPushButton('Copy Selection To', self)
         self.copy_selection_button.clicked.connect(self.copy_selection_to)
         layout.addWidget(self.copy_selection_button)
@@ -81,14 +81,13 @@ class FileConfig(QWidget):
     def filter_columns(self):
         search_text = self.search_bar.text().lower()
         if search_text == '':
-            # Clear layout and restore original order
             for column in self.original_order:
-                self.column_checkboxes[column].setParent(None)  # Remove from layout
+                self.column_checkboxes[column].setParent(None)
                 self.scroll_layout.addRow(self.column_checkboxes[column])
-                self.column_checkboxes[column].show()  # Ensure all checkboxes are visible
+                self.column_checkboxes[column].show()
         else:
             for column, checkbox in self.column_checkboxes.items():
-                checkbox.setParent(None)  # Remove from layout
+                checkbox.setParent(None)
                 if search_text in column.lower():
                     self.scroll_layout.addRow(checkbox)
                     checkbox.show()
@@ -104,8 +103,8 @@ class FileConfig(QWidget):
 
     def update_columns(self, columns):
         self.clear_columns()
-        self.all_columns = columns  # Update all columns list
-        self.original_order = columns[:]  # Store the original order
+        self.all_columns = columns
+        self.original_order = columns[:]
         for column in columns:
             checkbox = QCheckBox(column, self)
             checkbox.stateChanged.connect(lambda state, c=column: self.parent.update_table_preview())
@@ -153,7 +152,6 @@ class CopySelectionDialog(QDialog):
         self.sheets_label = QLabel('Select sheets to copy the selection to:', self)
         layout.addWidget(self.sheets_label)
 
-        # Add "Select All" checkbox
         self.select_all_checkbox = QCheckBox('Select All', self)
         self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
         layout.addWidget(self.select_all_checkbox)
@@ -353,8 +351,22 @@ class ConverterApp(QWidget):
 
         self.fragment_size_line_edit = QLineEdit(self)
         self.fragment_size_line_edit.setPlaceholderText('Enter fragment size in MB')
-        self.fragment_size_line_edit.setEnabled(False)  # Disable by default
+        self.fragment_size_line_edit.setEnabled(False)
         left_layout.addWidget(self.fragment_size_line_edit)
+
+        self.example_checkbox = QCheckBox('Example sheet', self)
+        self.example_checkbox.stateChanged.connect(self.toggle_example_sheet)
+        left_layout.addWidget(self.example_checkbox)
+
+        self.example_file_edit = QLineEdit(self)
+        self.example_file_edit.setPlaceholderText('Select example sheet...')
+        self.example_file_edit.setEnabled(False)
+        left_layout.addWidget(self.example_file_edit)
+
+        self.example_file_button = QPushButton('Browse and Read', self)
+        self.example_file_button.setEnabled(False)
+        self.example_file_button.clicked.connect(self.browse_example_sheet)
+        left_layout.addWidget(self.example_file_button)
 
         self.tab_widget = QTabWidget(self)
         self.tab_widget.currentChanged.connect(self.update_table_preview)
@@ -364,7 +376,6 @@ class ConverterApp(QWidget):
         self.convert_button.clicked.connect(self.convert_files)
         left_layout.addWidget(self.convert_button)
 
-        # Table to display data
         self.table_widget = QTableWidget(self)
         main_layout.addWidget(self.table_widget)
 
@@ -384,6 +395,36 @@ class ConverterApp(QWidget):
         if folder_path:
             self.output_line_edit.setText(folder_path)
 
+    def toggle_example_sheet(self):
+        self.example_file_edit.setEnabled(self.example_checkbox.isChecked())
+        self.example_file_button.setEnabled(self.example_checkbox.isChecked())
+
+    def browse_example_sheet(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Example Sheet", "", "Excel Files (*.xlsx *.xls);;CSV Files (*.csv)", options=options)
+        if file_path:
+            self.example_file_edit.setText(file_path)
+            self.process_example_sheet(file_path)
+
+    def process_example_sheet(self, file_path):
+        try:
+            if file_path.endswith('.xlsx') or file_path.endswith('.xls'):
+                df = pd.read_excel(file_path)
+            elif file_path.endswith('.csv'):
+                df = pd.read_csv(file_path)
+            else:
+                raise ValueError("Unsupported file type. Please upload a CSV or Excel file.")
+
+            columns = [col.strip() for col in df.columns]  # Trimming column headers
+            for file_config in self.file_configs.values():
+                for column, checkbox in file_config.column_checkboxes.items():
+                    if column.strip() in columns:
+                        checkbox.setChecked(True)
+
+            self.update_table_preview()
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to process example sheet: {e}')
+
     def update_file_tabs(self, folder_path):
         self.tab_widget.clear()
         self.file_configs.clear()
@@ -398,7 +439,7 @@ class ConverterApp(QWidget):
         tab_index = self.tab_widget.addTab(widget, title)
         tab_button = QToolButton()
         tab_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarCloseButton))
-        tab_button.setIconSize(QSize(12, 12))  # Smaller icon size
+        tab_button.setIconSize(QSize(12, 12))
         tab_button.setStyleSheet("""
             QToolButton {
                 color: white;
@@ -410,7 +451,7 @@ class ConverterApp(QWidget):
             QToolButton:hover {
                 background-color: darkred;
             }
-        """)  # Red background and white color
+        """)
         tab_button.clicked.connect(lambda: self.remove_file_tab(widget))
         self.tab_widget.tabBar().setTabButton(tab_index, QTabBar.RightSide, tab_button)
         self.tab_widget.setCurrentIndex(tab_index)
@@ -423,17 +464,12 @@ class ConverterApp(QWidget):
         self.add_closable_tab(file_config, file_name)
 
         if file_name.lower().endswith('.xlsx'):
-            import pandas as pd
-            xls = pd.ExcelFile(file_path)
             df = pd.read_excel(file_path, nrows=1)
             file_config.update_columns(df.columns.tolist())
         elif file_name.lower().endswith('.csv'):
-            import pandas as pd
             df = pd.read_csv(file_path, nrows=1)
             file_config.update_columns(df.columns.tolist())
         elif file_name.lower().endswith('.json'):
-            import json
-            import pandas as pd
             data = []
             with open(file_path, 'r', encoding='utf-8') as f:
                 for i, line in enumerate(f):
@@ -455,7 +491,16 @@ class ConverterApp(QWidget):
     def convert_files(self):
         output_folder = self.output_line_edit.text()
         fragment_size = self.fragment_size_line_edit.text()
-        fragment_size_mb = float(fragment_size) if self.fragment_checkbox.isChecked() and fragment_size else None
+        
+        # Validation for fragment size input
+        if self.fragment_checkbox.isChecked():
+            try:
+                fragment_size_mb = float(fragment_size)
+            except ValueError:
+                QMessageBox.warning(self, "Fragment Size Error", "Please enter a valid number for the fragment size.")
+                return
+        else:
+            fragment_size_mb = None
 
         if not output_folder:
             QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
@@ -469,7 +514,7 @@ class ConverterApp(QWidget):
         def update_progress(value, total):
             progress_dialog.setValue(value)
             if progress_dialog.wasCanceled():
-                worker_thread.join(0)  # Attempt to stop the thread if the user cancels
+                worker_thread.join(0)
 
         def conversion_complete():
             progress_dialog.setValue(len(self.file_configs))
@@ -494,14 +539,10 @@ class ConverterApp(QWidget):
             return
 
         if file_path.endswith('.csv'):
-            import pandas as pd
             df = pd.read_csv(file_path, usecols=selected_columns, nrows=10)
         elif file_path.endswith('.xlsx'):
-            import pandas as pd
             df = pd.read_excel(file_path, usecols=selected_columns, nrows=10)
         elif file_path.endswith('.json'):
-            import json
-            import pandas as pd
             data = []
             with open(file_path, 'r', encoding='utf-8') as f:
                 for i, line in enumerate(f):
