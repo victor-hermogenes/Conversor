@@ -2,6 +2,7 @@ import sys
 import os
 import threading
 import json
+import pandas as pd
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
@@ -10,7 +11,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel, fragment_file
-import pandas as pd
 
 class WorkerSignals(QObject):
     progress = pyqtSignal(int, int)
@@ -34,7 +34,7 @@ class WorkerThread(threading.Thread):
             string_delimiter = file_config.string_delimiter_line_edit.text()
 
             file_name = os.path.basename(file_path)
-            output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
+            output_extension = '.csv' if conversion_type in ['Excel to CSV', 'JSON to CSV'] else '.xlsx'
             output_file = os.path.join(self.output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
 
             try:
@@ -111,6 +111,7 @@ class FileConfig(QWidget):
 
         self.delimiter_combo = QComboBox(self)
         self.delimiter_combo.addItems([",", ";", "\t", "|"])
+        self.delimiter_combo.currentTextChanged.connect(self.update_table_preview)
         layout.addWidget(self.delimiter_combo)
 
         self.string_delimiter_label = QLabel('String Delimiter (for CSV to Excel):', self)
@@ -506,8 +507,7 @@ class ConverterApp(QWidget):
             df = pd.read_excel(file_path, nrows=1)
             file_config.update_columns(df.columns.tolist())
         elif file_name.lower().endswith('.csv'):
-            df = pd.read_csv(file_path, nrows=1)
-            file_config.update_columns(df.columns.tolist())
+            self.detect_columns(file_config, file_path)
         elif file_name.lower().endswith('.json'):
             data = []
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -517,6 +517,15 @@ class ConverterApp(QWidget):
                     data.append(json.loads(line.strip()))
             df = pd.json_normalize(data)
             file_config.update_columns(df.columns.tolist())
+
+    def detect_columns(self, file_config, file_path):
+        delimiter = file_config.delimiter_combo.currentText()
+        try:
+            df = pd.read_csv(file_path, delimiter=delimiter, nrows=1)
+            file_config.update_columns(df.columns.tolist())
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to detect columns: {e}')
+        self.update_table_preview()
 
     def remove_file_tab(self, file_config_widget):
         for file_path, file_config in self.file_configs.items():
@@ -574,6 +583,7 @@ class ConverterApp(QWidget):
         selected_columns = [self.file_configs[file_path].scroll_layout.itemAt(i).widget().text()
                             for i in range(self.file_configs[file_path].scroll_layout.count())
                             if self.file_configs[file_path].scroll_layout.itemAt(i).widget().isChecked()]
+        delimiter = self.file_configs[file_path].delimiter_combo.currentText()
 
         if not selected_columns:
             self.table_widget.clear()
@@ -582,7 +592,7 @@ class ConverterApp(QWidget):
             return
 
         if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path, usecols=selected_columns, nrows=10)
+            df = pd.read_csv(file_path, delimiter=delimiter, usecols=selected_columns, nrows=10)
         elif file_path.endswith('.xlsx'):
             df = pd.read_excel(file_path, usecols=selected_columns, nrows=10)
         elif file_path.endswith('.json'):
