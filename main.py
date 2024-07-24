@@ -7,10 +7,53 @@ from PyQt5.QtWidgets import (
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
     QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox
 )
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt, QSize, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel, fragment_file
 import pandas as pd
+
+class WorkerSignals(QObject):
+    progress = pyqtSignal(int, int)
+    complete = pyqtSignal()
+
+class WorkerThread(threading.Thread):
+    def __init__(self, file_configs, output_folder, fragment_size_mb, signals):
+        super().__init__()
+        self.file_configs = file_configs
+        self.output_folder = output_folder
+        self.fragment_size_mb = fragment_size_mb
+        self.signals = signals
+
+    def run(self):
+        total_files = len(self.file_configs)
+        for i, (file_path, file_config) in enumerate(self.file_configs.items()):
+            conversion_type = file_config.type_combo.currentText()
+            selected_columns = file_config.get_selected_columns()
+            input_file = file_config.file_path
+
+            file_name = os.path.basename(file_path)
+            output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
+            output_file = os.path.join(self.output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
+
+            try:
+                if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
+                    convert_excel(input_file, output_file, selected_columns)
+                elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
+                    convert_csv_to_excel(input_file, output_file, selected_columns)
+                elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
+                    convert_json_to_csv(input_file, output_file, selected_columns)
+                else:
+                    continue
+
+                if self.fragment_size_mb:
+                    fragment_file(output_file, self.fragment_size_mb)
+
+            except Exception as e:
+                print(f"Failed to convert {file_name}: {e}")
+
+            self.signals.progress.emit(i + 1, total_files)
+
+        self.signals.complete.emit()
 
 class FileConfig(QWidget):
     def __init__(self, file_path, file_name, close_callback, parent):
@@ -185,46 +228,6 @@ class CopySelectionDialog(QDialog):
     def get_selected_sheets(self):
         return [sheet for sheet, checkbox in self.sheet_checkboxes.items() if checkbox.isChecked()]
 
-class WorkerThread(threading.Thread):
-    def __init__(self, file_configs, output_folder, fragment_size_mb, update_progress, conversion_complete):
-        super().__init__()
-        self.file_configs = file_configs
-        self.output_folder = output_folder
-        self.fragment_size_mb = fragment_size_mb
-        self.update_progress = update_progress
-        self.conversion_complete = conversion_complete
-
-    def run(self):
-        total_files = len(self.file_configs)
-        for i, (file_path, file_config) in enumerate(self.file_configs.items()):
-            conversion_type = file_config.type_combo.currentText()
-            selected_columns = file_config.get_selected_columns()
-            input_file = file_config.file_path
-
-            file_name = os.path.basename(file_path)
-            output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
-            output_file = os.path.join(self.output_folder, os.path.splitext(file_name)[0] + '_converted' + output_extension)
-
-            try:
-                if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
-                    convert_excel(input_file, output_file, selected_columns)
-                elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
-                    convert_csv_to_excel(input_file, output_file, selected_columns)
-                elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
-                    convert_json_to_csv(input_file, output_file, selected_columns)
-                else:
-                    continue
-
-                if self.fragment_size_mb:
-                    fragment_file(output_file, self.fragment_size_mb)
-
-            except Exception as e:
-                print(f"Failed to convert {file_name}: {e}")
-
-            self.update_progress(i + 1, total_files)
-
-        self.conversion_complete()
-
 class ConverterApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -235,8 +238,7 @@ class ConverterApp(QWidget):
     def initUI(self):
         self.setWindowTitle('EFC')
         self.setWindowIcon(QIcon('conversor.ico'))
-        self.setGeometry(100, 100, 1000, 600)
-
+        self.resize_to_screen()
         self.setStyleSheet("""
             QWidget {
                 background-color: #2E2E2E;
@@ -320,11 +322,17 @@ class ConverterApp(QWidget):
             }
         """)
 
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_area.setWidget(scroll_widget)
+        scroll_layout = QVBoxLayout(scroll_widget)
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
+        main_layout.addWidget(scroll_area)
 
         left_layout = QVBoxLayout()
-        main_layout.addLayout(left_layout)
+        scroll_layout.addLayout(left_layout)
 
         self.input_label = QLabel('Input Folder:', self)
         left_layout.addWidget(self.input_label)
@@ -382,6 +390,11 @@ class ConverterApp(QWidget):
 
         self.table_widget = QTableWidget(self)
         main_layout.addWidget(self.table_widget)
+
+    def resize_to_screen(self):
+        screen_geometry = QApplication.desktop().screenGeometry()
+        self.setGeometry(screen_geometry)
+        self.showMaximized()
 
     def toggle_fragmentation(self):
         self.fragment_size_line_edit.setEnabled(self.fragment_checkbox.isChecked())
@@ -510,22 +523,26 @@ class ConverterApp(QWidget):
             QMessageBox.warning(self, "Output Folder Error", "Please select an output folder.")
             return
 
-        progress_dialog = QProgressDialog("Converting files...", "Cancel", 0, len(self.file_configs), self)
-        progress_dialog.setWindowModality(Qt.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        self.progress_dialog = QProgressDialog("Converting files...", "Cancel", 0, len(self.file_configs), self)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setValue(0)
 
-        def update_progress(value, total):
-            progress_dialog.setValue(value)
-            if progress_dialog.wasCanceled():
-                worker_thread.join(0)
+        self.signals = WorkerSignals()
+        self.signals.progress.connect(self.update_progress)
+        self.signals.complete.connect(self.conversion_complete)
 
-        def conversion_complete():
-            progress_dialog.setValue(len(self.file_configs))
-            QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
+        self.worker_thread = WorkerThread(self.file_configs, output_folder, fragment_size_mb, self.signals)
+        self.worker_thread.start()
 
-        worker_thread = WorkerThread(self.file_configs, output_folder, fragment_size_mb, update_progress, conversion_complete)
-        worker_thread.start()
+    def update_progress(self, value, total):
+        self.progress_dialog.setValue(value)
+        if self.progress_dialog.wasCanceled():
+            self.worker_thread.join(0)
+
+    def conversion_complete(self):
+        self.progress_dialog.setValue(len(self.file_configs))
+        QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
 
     def update_table_preview(self):
         current_index = self.tab_widget.currentIndex()
