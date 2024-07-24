@@ -186,25 +186,31 @@ class FileConfig(QWidget):
 
     def copy_selection_to(self):
         selected_columns = self.get_selected_columns()
-        dialog = CopySelectionDialog(self.parent, selected_columns)
+        delimiter = self.delimiter_combo.currentText()
+        string_delimiter = self.string_delimiter_line_edit.text()
+        dialog = CopySelectionDialog(self.parent, selected_columns, delimiter, string_delimiter)
         if dialog.exec_() == QDialog.Accepted:
             target_sheets = dialog.get_selected_sheets()
             for sheet_name in target_sheets:
                 if sheet_name in self.parent.file_configs:
-                    self.parent.file_configs[sheet_name].set_columns(selected_columns)
+                    self.parent.file_configs[sheet_name].set_columns(selected_columns, delimiter, string_delimiter)
         self.parent.update_table_preview()
 
-    def set_columns(self, selected_columns):
+    def set_columns(self, selected_columns, delimiter, string_delimiter):
         for column, checkbox in self.column_checkboxes.items():
             checkbox.setChecked(column in selected_columns)
+        self.delimiter_combo.setCurrentText(delimiter)
+        self.string_delimiter_line_edit.setText(string_delimiter)
         self.parent.update_table_preview()
 
 class CopySelectionDialog(QDialog):
-    def __init__(self, parent, selected_columns):
+    def __init__(self, parent, selected_columns, delimiter, string_delimiter):
         super().__init__(parent)
         self.setWindowTitle('Copy Selection To')
         self.setWindowIcon(QIcon('conversor.ico'))
         self.selected_columns = selected_columns
+        self.delimiter = delimiter
+        self.string_delimiter = string_delimiter
         self.initUI()
 
     def initUI(self):
