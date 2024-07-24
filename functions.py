@@ -49,7 +49,12 @@ def convert_csv_to_excel(input_file, output_file, selected_columns, delimiter=',
         df = pd.read_csv(input_file, encoding='utf-8', delimiter=delimiter)
         
         if string_rule:
-            df = df.applymap(lambda x: eval(string_rule) if isinstance(x, str) else x)
+            def apply_string_rule(x):
+                try:
+                    return eval(string_rule)
+                except:
+                    return x
+            df = df.applymap(lambda x: apply_string_rule(x) if isinstance(x, str) else x)
 
         df = df[selected_columns]
 
