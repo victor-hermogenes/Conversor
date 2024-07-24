@@ -44,9 +44,13 @@ def convert_json_to_csv(input_file, output_file, selected_columns):
     except Exception as e:
         logging.error(f"Error converting file: {e}")
 
-def convert_csv_to_excel(input_file, output_file, selected_columns):
+def convert_csv_to_excel(input_file, output_file, selected_columns, delimiter=',', string_rule=None):
     try:
-        df = pd.read_csv(input_file, encoding='utf-8')
+        df = pd.read_csv(input_file, encoding='utf-8', delimiter=delimiter)
+        
+        if string_rule:
+            df = df.applymap(lambda x: eval(string_rule) if isinstance(x, str) else x)
+
         df = df[selected_columns]
 
         df.to_excel(output_file, index=False)
