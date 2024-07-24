@@ -30,6 +30,8 @@ class WorkerThread(threading.Thread):
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
+            delimiter = file_config.delimiter_combo.currentText()
+            string_delimiter = file_config.string_delimiter_line_edit.text()
 
             file_name = os.path.basename(file_path)
             output_extension = '.csv' if conversion_type == 'Excel to CSV' or conversion_type == 'JSON to CSV' else '.xlsx'
@@ -39,7 +41,7 @@ class WorkerThread(threading.Thread):
                 if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
                     convert_excel(input_file, output_file, selected_columns)
                 elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
-                    convert_csv_to_excel(input_file, output_file, selected_columns)
+                    convert_csv_to_excel(input_file, output_file, selected_columns, delimiter, string_delimiter)
                 elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
                     convert_json_to_csv(input_file, output_file, selected_columns)
                 else:
@@ -103,6 +105,20 @@ class FileConfig(QWidget):
         self.scroll_layout = QFormLayout(self.scroll_content)
         self.scroll_area.setWidget(self.scroll_content)
         layout.addWidget(self.scroll_area)
+
+        self.delimiter_label = QLabel('Delimiter (for CSV to Excel):', self)
+        layout.addWidget(self.delimiter_label)
+
+        self.delimiter_combo = QComboBox(self)
+        self.delimiter_combo.addItems([",", ";", "\t", "|"])
+        layout.addWidget(self.delimiter_combo)
+
+        self.string_delimiter_label = QLabel('String Delimiter (for CSV to Excel):', self)
+        layout.addWidget(self.string_delimiter_label)
+
+        self.string_delimiter_line_edit = QLineEdit(self)
+        self.string_delimiter_line_edit.setText('"')
+        layout.addWidget(self.string_delimiter_line_edit)
 
         self.copy_selection_button = QPushButton('Copy Selection To', self)
         self.copy_selection_button.clicked.connect(self.copy_selection_to)
