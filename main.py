@@ -11,6 +11,10 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
 from functions import convert_excel, convert_json_to_csv, convert_csv_to_excel, fragment_file
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class WorkerSignals(QObject):
     progress = pyqtSignal(int, int)
@@ -26,6 +30,8 @@ class WorkerThread(threading.Thread):
 
     def run(self):
         total_files = len(self.file_configs)
+        threads = []
+
         for i, (file_path, file_config) in enumerate(self.file_configs.items()):
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
@@ -39,21 +45,29 @@ class WorkerThread(threading.Thread):
 
             try:
                 if conversion_type == 'Excel to CSV' and input_file.lower().endswith('.xlsx'):
-                    convert_excel(input_file, output_file, selected_columns)
+                    thread = threading.Thread(target=convert_excel, args=(input_file, output_file, selected_columns))
                 elif conversion_type == 'CSV to Excel' and input_file.lower().endswith('.csv'):
-                    convert_csv_to_excel(input_file, output_file, selected_columns, delimiter, string_delimiter)
+                    thread = threading.Thread(target=convert_csv_to_excel, args=(input_file, output_file, selected_columns, delimiter, string_delimiter))
                 elif conversion_type == 'JSON to CSV' and input_file.lower().endswith('.json'):
-                    convert_json_to_csv(input_file, output_file, selected_columns)
+                    thread = threading.Thread(target=convert_json_to_csv, args=(input_file, output_file, selected_columns))
                 else:
                     continue
 
+                thread.start()
+                threads.append(thread)
+
                 if self.fragment_size_mb:
-                    fragment_file(output_file, self.fragment_size_mb)
+                    fragment_thread = threading.Thread(target=fragment_file, args=(output_file, self.fragment_size_mb))
+                    fragment_thread.start()
+                    threads.append(fragment_thread)
 
             except Exception as e:
                 print(f"Failed to convert {file_name}: {e}")
 
             self.signals.progress.emit(i + 1, total_files)
+
+        for thread in threads:
+            thread.join()
 
         self.signals.complete.emit()
 
@@ -111,7 +125,7 @@ class FileConfig(QWidget):
 
         self.delimiter_combo = QComboBox(self)
         self.delimiter_combo.addItems([",", ";", "\t", "|"])
-        self.delimiter_combo.currentTextChanged.connect(self.update_table_preview)
+        self.delimiter_combo.currentTextChanged.connect(self.update_columns_based_on_delimiter)
         layout.addWidget(self.delimiter_combo)
 
         self.string_delimiter_label = QLabel('String Delimiter (for CSV to Excel):', self)
@@ -139,6 +153,11 @@ class FileConfig(QWidget):
                 border-radius: 3px;
             }
         """)
+
+    def update_columns_based_on_delimiter(self):
+        delimiter = self.delimiter_combo.currentText()
+        columns = self.parent.detect_columns(self.file_path, delimiter)
+        self.update_columns(columns)
 
     def filter_columns(self):
         search_text = self.search_bar.text().lower()
@@ -194,14 +213,22 @@ class FileConfig(QWidget):
             target_sheets = dialog.get_selected_sheets()
             for sheet_name in target_sheets:
                 if sheet_name in self.parent.file_configs:
+                    self.parent.file_configs[sheet_name].set_general_settings(delimiter, string_delimiter)
+            # Second step: copy column selections
+            for sheet_name in target_sheets:
+                if sheet_name in self.parent.file_configs:
                     self.parent.file_configs[sheet_name].set_columns(selected_columns, delimiter, string_delimiter)
         self.parent.update_table_preview()
 
-    def set_columns(self, selected_columns, delimiter, string_delimiter):
-        for column, checkbox in self.column_checkboxes.items():
-            checkbox.setChecked(column in selected_columns)
+    def set_general_settings(self, delimiter, string_delimiter):
         self.delimiter_combo.setCurrentText(delimiter)
         self.string_delimiter_line_edit.setText(string_delimiter)
+
+    def set_columns(self, selected_columns, delimiter, string_delimiter):
+        self.clear_columns()
+        self.update_columns(self.original_order)
+        for column, checkbox in self.column_checkboxes.items():
+            checkbox.setChecked(column in selected_columns)
         self.parent.update_table_preview()
 
 class CopySelectionDialog(QDialog):
@@ -507,7 +534,9 @@ class ConverterApp(QWidget):
             df = pd.read_excel(file_path, nrows=1)
             file_config.update_columns(df.columns.tolist())
         elif file_name.lower().endswith('.csv'):
-            self.detect_columns(file_config, file_path)
+            delimiter = file_config.delimiter_combo.currentText()
+            columns = self.detect_columns(file_path, delimiter)
+            file_config.update_columns(columns)
         elif file_name.lower().endswith('.json'):
             data = []
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -518,14 +547,13 @@ class ConverterApp(QWidget):
             df = pd.json_normalize(data)
             file_config.update_columns(df.columns.tolist())
 
-    def detect_columns(self, file_config, file_path):
-        delimiter = file_config.delimiter_combo.currentText()
+    def detect_columns(self, file_path, delimiter):
         try:
             df = pd.read_csv(file_path, delimiter=delimiter, nrows=1)
-            file_config.update_columns(df.columns.tolist())
+            return df.columns.tolist()
         except Exception as e:
-            QMessageBox.critical(self, 'Error', f'Failed to detect columns: {e}')
-        self.update_table_preview()
+            logging.error(f"Failed to detect columns with delimiter '{delimiter}': {e}")
+            return []
 
     def remove_file_tab(self, file_config_widget):
         for file_path, file_config in self.file_configs.items():
@@ -535,6 +563,47 @@ class ConverterApp(QWidget):
                     self.tab_widget.removeTab(index)
                     del self.file_configs[file_path]
                 break
+
+    def update_table_preview(self):
+        current_index = self.tab_widget.currentIndex()
+        if current_index == -1:
+            return
+        file_path = list(self.file_configs.keys())[current_index]
+        selected_columns = [self.file_configs[file_path].scroll_layout.itemAt(i).widget().text()
+                            for i in range(self.file_configs[file_path].scroll_layout.count())
+                            if self.file_configs[file_path].scroll_layout.itemAt(i).widget().isChecked()]
+        delimiter = self.file_configs[file_path].delimiter_combo.currentText()
+
+        if not selected_columns:
+            self.table_widget.clear()
+            self.table_widget.setRowCount(0)
+            self.table_widget.setColumnCount(0)
+            return
+
+        try:
+            if file_path.endswith('.csv'):
+                df = pd.read_csv(file_path, delimiter=delimiter, usecols=selected_columns, nrows=10)
+            elif file_path.endswith('.xlsx'):
+                df = pd.read_excel(file_path, usecols=selected_columns, nrows=10)
+            elif file_path.endswith('.json'):
+                data = []
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f):
+                        if i >= 10:
+                            break
+                        data.append(json.loads(line.strip()))
+                df = pd.json_normalize(data)
+                df = df[selected_columns]
+
+            self.table_widget.setColumnCount(len(df.columns))
+            self.table_widget.setRowCount(len(df.index))
+            self.table_widget.setHorizontalHeaderLabels(df.columns)
+
+            for row_index, row_data in df.iterrows():
+                for col_index, value in enumerate(row_data):
+                    self.table_widget.setItem(row_index, col_index, QTableWidgetItem(str(value)))
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to update table preview: {e}')
 
     def convert_files(self):
         output_folder = self.output_line_edit.text()
@@ -574,44 +643,6 @@ class ConverterApp(QWidget):
     def conversion_complete(self):
         self.progress_dialog.setValue(len(self.file_configs))
         QMessageBox.information(self, "Conversion Complete", "All files have been converted successfully.")
-
-    def update_table_preview(self):
-        current_index = self.tab_widget.currentIndex()
-        if current_index == -1:
-            return
-        file_path = list(self.file_configs.keys())[current_index]
-        selected_columns = [self.file_configs[file_path].scroll_layout.itemAt(i).widget().text()
-                            for i in range(self.file_configs[file_path].scroll_layout.count())
-                            if self.file_configs[file_path].scroll_layout.itemAt(i).widget().isChecked()]
-        delimiter = self.file_configs[file_path].delimiter_combo.currentText()
-
-        if not selected_columns:
-            self.table_widget.clear()
-            self.table_widget.setRowCount(0)
-            self.table_widget.setColumnCount(0)
-            return
-
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path, delimiter=delimiter, usecols=selected_columns, nrows=10)
-        elif file_path.endswith('.xlsx'):
-            df = pd.read_excel(file_path, usecols=selected_columns, nrows=10)
-        elif file_path.endswith('.json'):
-            data = []
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for i, line in enumerate(f):
-                    if i >= 10:
-                        break
-                    data.append(json.loads(line.strip()))
-            df = pd.json_normalize(data)
-            df = df[selected_columns]
-
-        self.table_widget.setColumnCount(len(df.columns))
-        self.table_widget.setRowCount(len(df.index))
-        self.table_widget.setHorizontalHeaderLabels(df.columns)
-
-        for row_index, row_data in df.iterrows():
-            for col_index, value in enumerate(row_data):
-                self.table_widget.setItem(row_index, col_index, QTableWidgetItem(str(value)))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
