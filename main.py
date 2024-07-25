@@ -6,7 +6,7 @@ import pandas as pd
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QComboBox, QMessageBox, QCheckBox, 
-    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox
+    QScrollArea, QFormLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QTabWidget, QToolButton, QStyle, QTabBar, QProgressDialog, QDialog, QDialogButtonBox, QRadioButton, QButtonGroup
 )
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
@@ -36,7 +36,7 @@ class WorkerThread(threading.Thread):
             conversion_type = file_config.type_combo.currentText()
             selected_columns = file_config.get_selected_columns()
             input_file = file_config.file_path
-            delimiter = file_config.delimiter_combo.currentText()
+            delimiter = file_config.get_delimiter()
             string_delimiter = file_config.string_delimiter_line_edit.text()
 
             file_name = os.path.basename(file_path)
@@ -123,10 +123,17 @@ class FileConfig(QWidget):
         self.delimiter_label = QLabel('Delimiter (for CSV to Excel):', self)
         layout.addWidget(self.delimiter_label)
 
-        self.delimiter_combo = QComboBox(self)
-        self.delimiter_combo.addItems([",", ";", "\t", "|"])
-        self.delimiter_combo.currentTextChanged.connect(self.update_columns_based_on_delimiter)
-        layout.addWidget(self.delimiter_combo)
+        self.delimiter_group = QButtonGroup(self)
+        self.delimiter_layout = QHBoxLayout()
+
+        self.delimiters = [",", ";", "\t", "|"]
+        for delim in self.delimiters:
+            radio_button = QRadioButton(delim, self)
+            self.delimiter_group.addButton(radio_button)
+            self.delimiter_layout.addWidget(radio_button)
+
+        self.delimiter_group.buttonClicked.connect(self.update_columns_based_on_delimiter)
+        layout.addLayout(self.delimiter_layout)
 
         self.string_delimiter_label = QLabel('String Delimiter (for CSV to Excel):', self)
         layout.addWidget(self.string_delimiter_label)
@@ -152,10 +159,19 @@ class FileConfig(QWidget):
                 border: 1px solid #5A5A5A;
                 border-radius: 3px;
             }
+            QRadioButton {
+                color: #FFFFFF;
+            }
         """)
 
+        # Set the default delimiter
+        self.delimiter_group.buttons()[0].setChecked(True)
+
+    def get_delimiter(self):
+        return self.delimiter_group.checkedButton().text()
+
     def update_columns_based_on_delimiter(self):
-        delimiter = self.delimiter_combo.currentText()
+        delimiter = self.get_delimiter()
         columns = self.parent.detect_columns(self.file_path, delimiter)
         self.update_columns(columns)
 
@@ -206,7 +222,7 @@ class FileConfig(QWidget):
 
     def copy_selection_to(self):
         selected_columns = self.get_selected_columns()
-        delimiter = self.delimiter_combo.currentText()
+        delimiter = self.get_delimiter()
         string_delimiter = self.string_delimiter_line_edit.text()
         dialog = CopySelectionDialog(self.parent, selected_columns, delimiter, string_delimiter)
         if dialog.exec_() == QDialog.Accepted:
@@ -221,7 +237,10 @@ class FileConfig(QWidget):
         self.parent.update_table_preview()
 
     def set_general_settings(self, delimiter, string_delimiter):
-        self.delimiter_combo.setCurrentText(delimiter)
+        for button in self.delimiter_group.buttons():
+            if button.text() == delimiter:
+                button.setChecked(True)
+                break
         self.string_delimiter_line_edit.setText(string_delimiter)
 
     def set_columns(self, selected_columns, delimiter, string_delimiter):
@@ -534,7 +553,7 @@ class ConverterApp(QWidget):
             df = pd.read_excel(file_path, nrows=1)
             file_config.update_columns(df.columns.tolist())
         elif file_name.lower().endswith('.csv'):
-            delimiter = file_config.delimiter_combo.currentText()
+            delimiter = file_config.get_delimiter()
             columns = self.detect_columns(file_path, delimiter)
             file_config.update_columns(columns)
         elif file_name.lower().endswith('.json'):
@@ -572,7 +591,7 @@ class ConverterApp(QWidget):
         selected_columns = [self.file_configs[file_path].scroll_layout.itemAt(i).widget().text()
                             for i in range(self.file_configs[file_path].scroll_layout.count())
                             if self.file_configs[file_path].scroll_layout.itemAt(i).widget().isChecked()]
-        delimiter = self.file_configs[file_path].delimiter_combo.currentText()
+        delimiter = self.file_configs[file_path].get_delimiter()
 
         if not selected_columns:
             self.table_widget.clear()
