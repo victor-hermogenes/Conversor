@@ -1,7 +1,8 @@
 import pandas as pd
-import os
 import json
+import os
 import logging
+import xlsxwriter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,7 +19,7 @@ def convert_excel(input_file, output_file, selected_columns):
 def convert_csv_to_excel(input_file, output_file, selected_columns, delimiter, string_delimiter):
     try:
         df = pd.read_csv(input_file, usecols=selected_columns, delimiter=delimiter, quotechar=string_delimiter, engine='python', on_bad_lines='warn')
-        df.to_excel(output_file, index=False)
+        df.to_excel(output_file, index=False, engine='xlsxwriter')
         logging.info(f"File converted successfully from {input_file} to {output_file}")
     except Exception as e:
         logging.error(f"Error converting file from {input_file} to {output_file}: {e}")
@@ -59,15 +60,13 @@ def fragment_file(file_path, fragment_size_mb):
         logging.error(f"Error fragmenting file {file_path}: {e}")
         raise e
 
-def merge_sheets(input_files, output_file):
+def merge_sheets(files, output_file):
     try:
-        writer = pd.ExcelWriter(output_file, engine='xlsxwriter')
-        for file in input_files:
-            df = pd.read_excel(file)
-            sheet_name = os.path.splitext(os.path.basename(file))[0]
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
-            logging.info(f"Sheet {sheet_name} added to {output_file}")
-        writer.save()
+        with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
+            for file in files:
+                df = pd.read_excel(file)
+                sheet_name = os.path.splitext(os.path.basename(file))[0]
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
         logging.info(f"All sheets merged successfully into {output_file}")
     except Exception as e:
         logging.error(f"Error merging sheets into {output_file}: {e}")
