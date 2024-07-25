@@ -1,7 +1,7 @@
 import pandas as pd
 import os
-import logging
 import json
+import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -57,4 +57,18 @@ def fragment_file(file_path, fragment_size_mb):
         logging.info(f"File {file_path} fragmented into {num_fragments} parts.")
     except Exception as e:
         logging.error(f"Error fragmenting file {file_path}: {e}")
+        raise e
+
+def merge_sheets(input_files, output_file):
+    try:
+        writer = pd.ExcelWriter(output_file, engine='xlsxwriter')
+        for file in input_files:
+            df = pd.read_excel(file)
+            sheet_name = os.path.splitext(os.path.basename(file))[0]
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            logging.info(f"Sheet {sheet_name} added to {output_file}")
+        writer.save()
+        logging.info(f"All sheets merged successfully into {output_file}")
+    except Exception as e:
+        logging.error(f"Error merging sheets into {output_file}: {e}")
         raise e
