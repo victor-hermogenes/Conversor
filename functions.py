@@ -62,12 +62,22 @@ def fragment_file(file_path, fragment_size_mb):
 
 def merge_sheets(files, output_file):
     try:
-        with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
-            for file in files:
+        combined_df = pd.DataFrame()
+        
+        for file in files:
+            if file.endswith('.xlsx') or file.endswith('.xls'):
                 df = pd.read_excel(file)
-                sheet_name = os.path.splitext(os.path.basename(file))[0]
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-        logging.info(f"All sheets merged successfully into {output_file}")
+            elif file.endswith('.csv'):
+                df = pd.read_csv(file)
+            else:
+                logging.warning(f"File {file} is not a supported format and will be skipped.")
+                continue
+            combined_df = pd.concat([combined_df, df], ignore_index=True)
+        
+        with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
+            combined_df.to_excel(writer, sheet_name='MergedSheet', index=False)
+        
+        logging.info(f"All sheets merged successfully into {output_file} in a single sheet.")
     except Exception as e:
         logging.error(f"Error merging sheets into {output_file}: {e}")
         raise e
