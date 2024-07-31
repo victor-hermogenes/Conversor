@@ -598,9 +598,22 @@ class ConverterApp(QWidget):
             df = pd.json_normalize(data)
             file_config.update_columns(df.columns.tolist())
 
-    def detect_columns(self, file_path, delimiter):
+    def detect_columns(self, file_path, delimiter=None):
         try:
-            df = pd.read_csv(file_path, delimiter=delimiter, nrows=1)
+            if file_path.endswith('.csv'):
+                df = pd.read_csv(file_path, delimiter=delimiter, nrows=1)
+            elif file_path.endswith('.xlsx'):
+                df = pd.read_excel(file_path, nrows=1)
+            elif file_path.endswith('.json'):
+                data = []
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f):
+                        if i >= 10:
+                            break
+                        data.append(json.loads(line.strip()))
+                df = pd.json_normalize(data)
+            else:
+                return []
             return df.columns.tolist()
         except Exception as e:
             logging.error(f"Failed to detect columns with delimiter '{delimiter}': {e}")
