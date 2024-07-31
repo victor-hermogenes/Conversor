@@ -74,7 +74,9 @@ def merge_sheets(files, output_file):
                 continue
             combined_df = pd.concat([combined_df, df], ignore_index=True)
         
+        # Use xlsxwriter to enable ZIP64
         with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
+            writer.book.use_zip64()
             combined_df.to_excel(writer, sheet_name='MergedSheet', index=False)
         
         logging.info(f"All sheets merged successfully into {output_file} in a single sheet.")
